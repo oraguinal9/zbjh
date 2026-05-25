@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { saveSession, signIn, signUp, resetPassword } from "@/lib/auth";
@@ -25,6 +25,8 @@ function LoginFormInner() {
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const [inviteCode, setInviteCode] = useState("");
+  const [showInvite, setShowInvite] = useState(false);
 
   const startCooldown = () => {
     setCooldown(40);
@@ -35,6 +37,16 @@ function LoginFormInner() {
       });
     }, 1000);
   };
+
+  // 从 URL 读取邀请码
+  useEffect(() => {
+    const code = params.get("invite");
+    if (code) {
+      setInviteCode(code.toUpperCase());
+      setShowInvite(true);
+      setIsSignUp(true);
+    }
+  }, [params]);
 
   const handleSubmit = async () => {
     if (!email || !password) return;
@@ -50,6 +62,10 @@ function LoginFormInner() {
         setMsg(formatError(error.message));
         setMsgType("error");
       } else {
+        // 保存邀请码，登录后自动绑定
+        if (inviteCode) {
+          localStorage.setItem("pending_invite", inviteCode);
+        }
         setMsg("注册成功！请查看邮箱确认链接，或直接登录。");
         setMsgType("success");
         setIsSignUp(false);
@@ -61,6 +77,16 @@ function LoginFormInner() {
         setMsgType("error");
       } else {
         await saveSession();
+        // 如果有邀请码，登录后自动绑定
+        const pendingCode = localStorage.getItem("pending_invite");
+        if (pendingCode) {
+          localStorage.removeItem("pending_invite");
+          try {
+            await fetch("/api/invite", {
+              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: pendingCode }),
+            });
+          } catch {}
+        }
         router.push(returnUrl);
       }
     }
@@ -87,7 +113,7 @@ function LoginFormInner() {
 
   return (
     <main className="min-h-screen bg-gray-950 flex items-center justify-center">
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 w-96">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 sm:p-8 w-full max-w-sm mx-4 sm:mx-0">
         <Link href="/" className="text-2xl font-bold text-center mb-2 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent block">执笔惊鸿</Link>
         <p className="text-center text-gray-500 text-sm mb-6">{isSignUp ? "注册新账号" : "登录"}</p>
         <div className="space-y-4">
@@ -107,9 +133,24 @@ function LoginFormInner() {
             </>
           )}
           {isSignUp && (
-            <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="密码（至少6位）" type="password"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-purple-500"
-              onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
+            <>
+              <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="密码（至少6位）" type="password"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-purple-500"
+                onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
+              <div>
+                <div className="flex items-center gap-2">
+                  <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                    placeholder="邀请码（选填）" maxLength={8}
+                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-amber-500 placeholder-gray-600 uppercase" />
+                  {!showInvite && (
+                    <button onClick={() => setShowInvite(true)} className="text-xs text-gray-500 hover:text-amber-400 shrink-0">我有邀请码</button>
+                  )}
+                </div>
+                {showInvite && inviteCode && (
+                  <p className="text-xs text-amber-400 mt-1">使用邀请码注册，双方各得 10 万字额度</p>
+                )}
+              </div>
+            </>
           )}
           <button onClick={isSignUp ? handleSubmit : handleSubmit} disabled={loading || cooldown > 0}
             className="w-full py-2.5 rounded-lg font-medium bg-purple-600 hover:bg-purple-700 disabled:opacity-50 transition text-sm">

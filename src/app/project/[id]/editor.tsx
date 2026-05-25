@@ -7,7 +7,7 @@ import { detectHooks } from "@/lib/hooks";
 import { exportSingleChapter, exportFullProject, type ExportFormat } from "@/lib/export";
 import type { Project, Chapter, Character } from "@/types";
 
-export function ChapterEditor({ projectId, project, chapters, characters }: { projectId: string; project: Project; chapters: Chapter[]; characters: Character[] }) {
+export function ChapterEditor({ projectId, project, chapters, characters, dbVolumes }: { projectId: string; project: Project; chapters: Chapter[]; characters: Character[]; dbVolumes: any[] }) {
   const searchParams = useSearchParams();
   const cid = searchParams.get("cid");
 
@@ -32,11 +32,25 @@ export function ChapterEditor({ projectId, project, chapters, characters }: { pr
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedRef = useRef<string>("");
   const [exportFmt, setExportFmt] = useState<ExportFormat>("txt");
+  const [balance, setBalance] = useState<number | null>(null);
+  const [styleSample, setStyleSample] = useState("");
+  const [showStyleSample, setShowStyleSample] = useState(false);
+  const [styleSaving, setStyleSaving] = useState(false);
+  const [summaryStatus, setSummaryStatus] = useState<"" | "generating" | "done">("");
+
+  // 字数统计（中文去空白）
+
+  useEffect(() => {
+    fetch("/api/payment/balance")
+      .then(r => r.json()).then(d => setBalance(d.remaining_words ?? null)).catch(() => {});
+    fetch(`/api/projects/${projectId}/style-sample`)
+      .then(r => r.json()).then(d => setStyleSample(d.style_sample || "")).catch(() => {});
+  }, [projectId]);
 
   useEffect(() => {
     if (cid) {
       const ch = chapters.find((c: any) => c.id === cid);
-      if (ch) { setActiveChapter(ch); setContent(ch.content || ""); setAiResult(""); setTab(""); setSaveStatus(""); }
+      if (ch) { setActiveChapter(ch); setContent(ch.content || ""); setAiResult(""); setTab(""); setSaveStatus(""); setSummaryStatus(""); }
     }
   }, [cid, chapters]);
 
@@ -102,6 +116,15 @@ export function ChapterEditor({ projectId, project, chapters, characters }: { pr
   const dialogueStatus = dialogueRatio >= 60 ? "达标" : "偏低";
   const dialogueColor = dialogueRatio >= 60 ? "text-green-400" : "text-yellow-400";
 
+  // 检查上一章是否有内容（顺序续写检查）
+  const prevChapterEmpty = useMemo(() => {
+    if (!activeChapter || !chapters.length) return false;
+    const sorted = [...chapters].sort((a: any, b: any) => a.sort_order - b.sort_order);
+    const idx = sorted.findIndex((c: any) => c.id === activeChapter.id);
+    if (idx <= 0) return false;
+    return !sorted[idx - 1]?.content?.trim();
+  }, [activeChapter, chapters]);
+
   // 钩子检测
   const hookResult = useMemo(() => detectHooks(content), [content]);
 
@@ -137,21 +160,41 @@ export function ChapterEditor({ projectId, project, chapters, characters }: { pr
     <div className="flex-1 h-screen overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto">
         <h2 className="text-lg font-bold mb-1">{activeChapter.title.split('\n')[0]}</h2>
+        <div className="text-xs text-gray-500 mb-2">
+          {balance !== null ? (
+            <>余额 <a href="/recharge" className="text-purple-400 hover:text-purple-300">{(balance / 10000).toFixed(1)}万</a></>
+          ) : (
+            <a href="/recharge" className="text-purple-400 hover:text-purple-300 font-medium">去充值</a>
+          )}
+          {(activeChapter as any)?.summary ? (
+            <span className="group relative ml-2">
+              <span className="text-xs text-gray-500 cursor-help border-b border-dotted border-gray-700">📝 剧情摘要</span>
+              <span className="absolute left-0 top-full mt-1 w-80 p-2 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 hidden group-hover:block z-50 shadow-xl whitespace-pre-wrap">
+                {(activeChapter as any).summary}
+              </span>
+            </span>
+          ) : null}
+        </div>
         <div className="flex flex-wrap gap-1.5 mb-4">
-          <button onClick={() => aiAction("/api/ai/continue", { projectId, chapterId: activeChapter.id, title: project.title, genre: project.genre, content, outline: activeChapter.title, targetWords })}
-            disabled={loading} className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 rounded-lg text-xs transition">🤖 AI续写</button>
+          <button onClick={() => {
+            if (prevChapterEmpty) {
+              if (!confirm("上一章还没有内容，建议先完成上一章再续写。确定要继续吗？")) return;
+            }
+            aiAction("/api/ai/continue", { projectId, chapterId: activeChapter.id, title: project.title, genre: project.genre, content, outline: activeChapter.title, targetWords });
+          }}
+            disabled={loading} className={`px-3 py-1.5 disabled:opacity-50 rounded-lg text-xs transition ${prevChapterEmpty ? "bg-orange-700 hover:bg-orange-600" : "bg-purple-600 hover:bg-purple-700"}`}>🤖 AI续写{prevChapterEmpty ? " ⚠️" : ""}</button>
           <select value={targetWords} onChange={(e) => setTargetWords(Number(e.target.value))}
             className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300">
             <option value={1500}>1500字</option><option value={2000}>2000字</option><option value={2500}>2500字</option><option value={3000}>3000字</option>
           </select>
-          <button onClick={() => aiAction("/api/ai/polish", { text: content })}
+          <button onClick={() => aiAction("/api/ai/polish", { text: content, projectId })}
             disabled={loading} className="px-3 py-1.5 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 rounded-lg text-xs transition">✨ 去AI味</button>
           <button onClick={async () => {
             if (!content) return;
             const target = prompt("目标字数（当前" + wordCount + "字）：", String(Math.max(wordCount + 500, 2000)));
             if (!target || isNaN(Number(target))) return;
             setLoading(true);
-            const r = await authFetch("/api/ai/expand", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: content, targetWords: Number(target) }) });
+            const r = await authFetch("/api/ai/expand", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: content, targetWords: Number(target), projectId }) });
             const d = await r.json();
             if (d.result) {
               const lines = activeChapter.title.split('\n');
@@ -166,12 +209,45 @@ export function ChapterEditor({ projectId, project, chapters, characters }: { pr
           <span className={`px-3 py-1.5 bg-gray-800 rounded-lg text-xs ${dialogueColor}`}>💬 对话{dialogueRatio}% {dialogueStatus}</span>
           <button onClick={() => setShowCharForm(!showCharForm)}
             className={`px-3 py-1.5 rounded-lg text-xs transition ${showCharForm ? "bg-pink-600" : "bg-gray-800 hover:bg-gray-700"}`}>🎭 角色({charList.length})</button>
+          <button onClick={() => setShowStyleSample(!showStyleSample)}
+            className={`px-3 py-1.5 rounded-lg text-xs transition ${showStyleSample ? "bg-amber-600" : "bg-gray-800 hover:bg-gray-700"}`}>📝 文风</button>
           <button onClick={() => setTab(tab === "comply" ? "" : "comply")}
             className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "comply" ? "bg-red-600" : "bg-gray-800 hover:bg-gray-700"}`}>🛡️ 合规({warnings.length})</button>
           <button onClick={() => setTab(tab === "hooks" ? "" : "hooks")}
             className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "hooks" ? "bg-yellow-600" : "bg-gray-800 hover:bg-gray-700"}`}>🎣 钩子({hookResult.totalHooks})</button>
-          <button onClick={() => { save(content); }}
-            className="px-3 py-1.5 bg-green-800 hover:bg-green-700 rounded-lg text-xs transition">💾 保存</button>
+          <button onClick={async () => {
+            await save(content);
+            // 保存后自动生成摘要（仅当有内容且无摘要时）
+            if (content?.trim() && wordCount > 200 && !summaryStatus) {
+              setSummaryStatus("generating");
+              try {
+                const r = await fetch("/api/ai/summarize", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ chapterId: activeChapter.id, content, projectId }),
+                });
+                const d = await r.json();
+                if (d.summary) setSummaryStatus("done");
+              } catch (e) { console.error("[摘要生成异常]", e); }
+              setTimeout(() => setSummaryStatus(""), 3000);
+            }
+          }}
+            className="px-3 py-1.5 bg-green-800 hover:bg-green-700 rounded-lg text-xs transition">💾 保存{summaryStatus === "generating" ? "📝" : summaryStatus === "done" ? "✅" : ""}</button>
+          <button onClick={async () => {
+            if (!content?.trim()) { alert("请先撰写章节内容"); return; }
+            if (summaryStatus === "generating") return;
+            setSummaryStatus("generating");
+            try {
+              const r = await fetch("/api/ai/summarize", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chapterId: activeChapter.id, content, projectId }),
+              });
+              const d = await r.json();
+              if (d.summary) setSummaryStatus("done");
+              else alert("摘要生成失败：" + (d.error || "未知错误"));
+            } catch (e: any) { alert("摘要生成失败：" + (e.message || "网络错误")); }
+            setTimeout(() => setSummaryStatus(""), 3000);
+          }}
+            className="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 rounded-lg text-xs transition">📝 摘要{summaryStatus === "generating" ? "..." : summaryStatus === "done" ? "✅" : ""}</button>
           <span className={`text-xs flex items-center ${saveStatus === "saving" ? "text-yellow-400" : saveStatus === "saved" ? "text-green-400" : saveStatus === "error" ? "text-red-400" : "hidden"}`}>
             {saveStatus === "saving" ? "保存中..." : saveStatus === "saved" ? "已保存" : saveStatus === "error" ? "保存失败" : ""}
           </span>
@@ -259,6 +335,34 @@ export function ChapterEditor({ projectId, project, chapters, characters }: { pr
             </div>
           </div>
         )}
+        {showStyleSample && (
+          <div className="mb-3 p-4 bg-gray-900 border border-amber-800 rounded-lg text-xs">
+            <p className="font-bold text-amber-400 mb-1">📝 文风样本</p>
+            <p className="text-gray-500 mb-2">粘贴一段你写的文字作为风格参考，AI续写/润色/扩写时会模仿这里的句式和节奏。</p>
+            <textarea value={styleSample} onChange={(e) => setStyleSample(e.target.value)}
+              placeholder={`粘贴你的章节文字作为文风样本...\n\n示例：\n李向阳推开院门，迎面正看见王婶在井边洗菜。他笑了笑，走过去打了声招呼。\n\nAI会模仿这段的句式长短、描写密度、对话习惯来生成后续内容。`}
+              className="w-full h-40 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs resize-none focus:outline-none focus:border-amber-500 placeholder-gray-600 mb-3" />
+            <div className="flex gap-2 items-center">
+              <button onClick={async () => {
+                if (!styleSample.trim()) return;
+                setStyleSaving(true);
+                try {
+                  await fetch(`/api/projects/${projectId}/style-sample`, {
+                    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ style_sample: styleSample }),
+                  });
+                  alert("文风样本已保存");
+                } catch { alert("保存失败"); }
+                setStyleSaving(false);
+              }} disabled={styleSaving || !styleSample.trim()}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded transition">
+                {styleSaving ? "保存中..." : "💾 保存"}
+              </button>
+              <button onClick={() => { setStyleSample(""); fetch(`/api/projects/${projectId}/style-sample`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ style_sample: "" }) }); }}
+                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded transition">🗑️ 清除</button>
+              <span className="text-gray-600">{styleSample.replace(/\s/g, "").length}字</span>
+            </div>
+          </div>
+        )}
         {bulkMsg && <div className="mb-3 p-2 bg-green-900/30 border border-green-800 rounded-lg text-xs text-green-400 text-center">{bulkMsg}</div>}
         {showBatch && (
           <div className="mb-3 p-4 bg-gray-900 border border-orange-800 rounded-lg text-xs">
@@ -297,7 +401,7 @@ export function ChapterEditor({ projectId, project, chapters, characters }: { pr
                   const ch = chapters.find((c: any) => c.id === cid);
                   if (!ch?.content) { done++; continue; }
                   try {
-                    const r = await authFetch("/api/ai/polish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ch.content }) });
+                    const r = await authFetch("/api/ai/polish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ch.content, projectId }) });
                     const d = await r.json();
                     if (d.result) {
                       await authFetch(`/api/projects/${projectId}/chapters/${cid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: d.result }) });

@@ -6,6 +6,7 @@ export interface Project {
   title: string;
   genre: string;
   summary: string;
+  outline?: string;
   status: "draft" | "writing" | "completed";
   created_at: string;
   updated_at: string;
@@ -55,4 +56,27 @@ export interface UserProfile {
   email: string;
   id: string;
   created_at?: string;
+}
+
+export interface Order {
+  id: string;
+  user_id: string;
+  order_no: string;
+  amount: number;
+  words: number;
+  package_type: "first" | "renew";
+  status: "pending" | "paid" | "expired" | "cancelled";
+  payment_method: string;
+  paid_at: string | null;
+  created_at: string;
+}
+
+export interface UsageRecord {
+  id: string;
+  user_id: string;
+  words_used: number;
+  feature: string;
+  project_id: string | null;
+  chapter_id: string | null;
+  created_at: string;
 }

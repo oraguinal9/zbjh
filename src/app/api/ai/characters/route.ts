@@ -1,15 +1,14 @@
 import { NextRequest } from "next/server";
 import { supabase, getCurrentUser } from "@/lib/supabase";
 import { aiChat } from "@/lib/ai";
-import { checkFreeLimit, incrementCount } from "@/lib/rate-limit";
+import { incrementCount } from "@/lib/rate-limit";
+import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
 
 export async function POST(req: NextRequest) {
-  const limit = await checkFreeLimit(req);
-  if (!limit.allowed) {
-    return Response.json({ error: limit.error, needLogin: true }, { status: 429 });
-  }
-
   try {
+    const { paidUserId, errorResponse } = await checkQuotaOrError(req);
+    if (errorResponse) return errorResponse;
+
     const user = await getCurrentUser();
     if (!user) return Response.json({ error: "请先登录" }, { status: 401 });
 
@@ -43,7 +42,12 @@ ROLE: female lead
 DESC: 19-year-old blind girl, gentle and resilient. Secret inheritor of forbidden arts.`;
 
     const text = await aiChat(system, `Genre: ${genre}\nOutline:\n${outline.slice(0, 5000)}`, { max_tokens: 2048 });
-    incrementCount(req);
+
+    if (paidUserId) {
+      await deductWords(paidUserId, countTextWords(text), "characters");
+    } else {
+      incrementCount(req);
+    }
 
     // Parse ASCII format: split by "---"
     const blocks = text.split(/^---$/m);

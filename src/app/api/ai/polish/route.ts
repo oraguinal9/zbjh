@@ -1,18 +1,33 @@
 import { NextRequest } from "next/server";
 import { polishText } from "@/lib/ai";
-import { checkFreeLimit, incrementCount } from "@/lib/rate-limit";
+import { incrementCount } from "@/lib/rate-limit";
+import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
 
 export async function POST(req: NextRequest) {
-  const limit = await checkFreeLimit(req);
-  if (!limit.allowed) {
-    return Response.json({ error: limit.error, needLogin: true }, { status: 429 });
-  }
-
   try {
-    const { text } = await req.json();
+    const { paidUserId, errorResponse } = await checkQuotaOrError(req);
+    if (errorResponse) return errorResponse;
+
+    const { text, projectId } = await req.json();
     if (!text) return Response.json({ error: "内容不能为空" }, { status: 400 });
-    const result = await polishText(text);
-    incrementCount(req);
+
+    // 获取文风样本
+    let styleSample = "";
+    if (projectId) {
+      const { supabase } = await import("@/lib/supabase");
+      const { data: proj } = await supabase.from("projects").select("style_sample").eq("id", projectId).single();
+      if (proj?.style_sample) styleSample = proj.style_sample;
+    }
+
+    const result = await polishText(text, styleSample);
+
+    if (paidUserId) {
+      const wordsUsed = countTextWords(result);
+      await deductWords(paidUserId, wordsUsed, "polish");
+    } else {
+      incrementCount(req);
+    }
+
     return Response.json({ result });
   } catch (error: any) {
     console.error("[AI润色]", error.message);

@@ -33,6 +33,7 @@ export default function Dashboard() {
   const PAGE_SIZE = 10;
   const totalPages = Math.ceil(projects.length / PAGE_SIZE);
   const showPagination = totalPages > 1;
+  const [balance, setBalance] = useState<number | null>(null);
 
   useEffect(() => {
     const token = getToken();
@@ -46,6 +47,9 @@ export default function Dashboard() {
       .then((r) => { return r.json(); })
       .then((data) => { setProjects(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
+
+    fetch("/api/payment/balance")
+      .then(r => r.json()).then(d => setBalance(d.remaining_words ?? null)).catch(() => {});
   }, [router]);
 
   const deleteProject = async (id: string) => {
@@ -64,17 +68,28 @@ export default function Dashboard() {
 
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100">
-      <nav className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <Link href="/" className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">执笔惊鸿</Link>
-        <div className="flex items-center gap-4">
+      <nav className="border-b border-gray-800 px-4 sm:px-6 py-4 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link href="/" className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent shrink-0">执笔惊鸿</Link>
+          <Link href="/recharge"
+            className={`text-xs transition border rounded px-2 py-0.5 shrink-0 ${
+              balance !== null && balance > 0
+                ? "text-gray-500 hover:text-purple-400 border-gray-700"
+                : "text-purple-400 border-purple-600 hover:bg-purple-600/10"
+            }`}>
+            {balance !== null ? `余额 ${(balance / 10000).toFixed(1)}万` : "去充值"}
+          </Link>
+        </div>
+        <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto whitespace-nowrap max-w-[50vw] sm:max-w-none">
+          <Link href="/invite" className="text-xs text-amber-400 hover:text-amber-300 transition shrink-0">🎁 邀请</Link>
           {profile && (
             <div className="relative">
               <button onClick={() => setShowProfile(!showProfile)}
-                className="flex items-center gap-2 text-xs text-gray-400 hover:text-white transition bg-gray-800 rounded-lg px-3 py-1.5">
+                className="flex items-center gap-2 text-xs text-gray-400 hover:text-white transition bg-gray-800 rounded-lg px-3 py-1.5 shrink-0">
                 <span className="w-5 h-5 rounded-full bg-purple-600 flex items-center justify-center text-white text-[10px] font-bold">
                   {profile.email[0].toUpperCase()}
                 </span>
-                {profile.email}
+                <span className="hidden sm:inline">{profile.email}</span>
               </button>
               {showProfile && (
                 <>

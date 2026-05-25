@@ -1,14 +1,13 @@
 import { NextRequest } from "next/server";
 import { aiChatStream } from "@/lib/ai";
-import { checkFreeLimit, incrementCount } from "@/lib/rate-limit";
+import { incrementCount } from "@/lib/rate-limit";
+import { checkQuotaOrError, withBillingStream } from "@/lib/billing";
 
 export async function POST(req: NextRequest) {
-  const limit = await checkFreeLimit(req);
-  if (!limit.allowed) {
-    return Response.json({ error: limit.error, needLogin: true }, { status: 429 });
-  }
-
   try {
+    const { paidUserId, errorResponse } = await checkQuotaOrError(req);
+    if (errorResponse) return errorResponse;
+
     const { bookName, text } = await req.json();
     if (!bookName) return Response.json({ error: "请输入书名" }, { status: 400 });
     const hasText = text && text.length > 100;
@@ -26,8 +25,14 @@ ${hasText ? "以下附有原文片段供分析。" : "如果你没读过这本�
 ## 四、可复用的结构模板（按卷拆解）
 ## 五、同风格新书建议（题材+五卷大纲）`;
 
-    const stream = await aiChatStream(system, hasText ? `分析以下片段：\n\n${text.slice(0, 8000)}` : `拆解《${bookName}》。`);
-    incrementCount(req);
+    let stream = await aiChatStream(system, hasText ? `分析以下片段：\n\n${text.slice(0, 8000)}` : `拆解《${bookName}》。`);
+
+    if (paidUserId) {
+      stream = withBillingStream(stream, paidUserId, "analyze");
+    } else {
+      incrementCount(req);
+    }
+
     return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
   } catch (error: any) {
     console.error("[AI拆书]", error.message);

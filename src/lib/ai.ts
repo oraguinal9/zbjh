@@ -87,33 +87,11 @@ export async function aiChatStream(system: string, user: string, options?: { max
   return parseSSEStream(res.body!);
 }
 
-// 大纲生成（流式）
-export async function generateOutline(genre: string, idea: string, wordCount: number) {
-  const system = `你是番茄小说平台的资深大纲策划师，专精爆款网文结构。
-写作要求：节奏紧凑、爽点密集、反转自然、画面感强、代入感足。
-
-输出格式必须严格遵循以下规则（极其重要）：
-- 五卷结构，每卷必须标注"第一卷：卷名"
-- 每卷包含12章，每章必须标注"第X章：章名 - 核心事件"（章号从1开始连续编号）
-- 例如："第1章：穿越醒来 - 主角发现自己穿越到1978年"
-- 每卷结尾标注"【第一卷完】"
-- 最后附主角成长线
-
-要求：章名要有故事感，核心事件要具体，不要空泛描述。`;
-  const user = `题材：${genre}。核心思路：${idea}。目标字数：${wordCount}万字。请生成完整细纲。`;
-
-  const res = await fetchAI(`${API_BASE}/v1/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${API_KEY}` },
-    body: JSON.stringify({ model: AI_MODEL, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 4096, temperature: 0.8, stream: true }),
-  });
-
-  if (!res.ok) throw new Error(`AI请求失败: ${res.status}`);
-  return parseSSEStream(res.body!);
-}
-
 // AI润色（非流式）
-export async function polishText(text: string) {
-  const system = "你是网文润色编辑。核心要求：节奏紧凑、画面感强、代入感足。去掉AI味——打破排比、加口语化、减'不是...而是...'句式、对话更自然。保持原意不变。";
+export async function polishText(text: string, styleSample?: string) {
+  let system = "你是网文润色编辑。核心要求：节奏紧凑、画面感强、代入感足。去掉AI味——打破排比、加口语化、减'不是...而是...'句式、对话更自然。保持原意不变。";
+  if (styleSample) {
+    system += `\n\n请严格模仿以下文风样本的句式和节奏来润色：\n${styleSample.slice(0, 2000)}`;
+  }
   return aiChat(system, `润色以下内容：\n${text}`);
 }

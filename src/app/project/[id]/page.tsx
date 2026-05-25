@@ -1,6 +1,7 @@
 import { supabase, getCurrentUser } from "@/lib/supabase";
 import { redirect } from "next/navigation";
 import { ChapterEditor } from "./editor";
+import { SidebarClient } from "./sidebar-client";
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -16,54 +17,45 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const { data: characters } = await supabase.from("characters").select("*").eq("project_id", id).order("created_at");
   const { data: allProjects } = await supabase.from("projects").select("id, title").eq("user_id", user.id).order("updated_at", { ascending: false });
 
+  const volInfo = (volumes || []).map((v: any) => ({
+    id: v.id, title: v.title, sort_order: v.sort_order,
+    chapterCount: (chapters || []).filter((c: any) => c.volume_id === v.id).length,
+  }));
+
+  // 提取每卷的章节范围：优先从标题（新作品），兜底从大纲文本（旧作品）
+  const chapterRanges: Record<string, string> = {};
+  for (const v of volumes || []) {
+    const titleMatch = v.title.match(/（(\d+-\d+)章）$/);
+    if (titleMatch) { chapterRanges[v.id] = titleMatch[1]; }
+  }
+  if (project.outline && Object.keys(chapterRanges).length === 0) {
+    const sections = project.outline.split(/【第\d+卷完】/);
+    (volumes || []).forEach((v: any, i: number) => {
+      const section = sections[i];
+      if (section) {
+        const m = section.match(/章节范围[：:]\s*(\d+-\d+)/);
+        if (m) chapterRanges[v.id] = m[1];
+      }
+    });
+  }
+
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100 flex">
       <aside className="w-64 border-r border-gray-800 h-screen overflow-y-auto p-3 flex-shrink-0">
-        <div className="flex items-center justify-between mb-3">
-          <a href="/dashboard" className="text-xs text-gray-500 hover:text-white">← 返回</a>
-          <div className="relative group">
-            <button className="text-xs text-gray-500 hover:text-white px-2 py-0.5 rounded hover:bg-gray-800 transition">
-              📂 切换
-            </button>
-            <div className="absolute right-0 top-full mt-1 w-48 bg-gray-900 border border-gray-700 rounded-xl p-1.5 shadow-xl hidden group-hover:block z-50 max-h-48 overflow-y-auto">
-              {(allProjects || []).map((p: any) => (
-                <a key={p.id} href={`/project/${p.id}`}
-                  className={`block text-xs px-3 py-1.5 rounded-lg transition ${p.id === id ? "bg-purple-600 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-white"}`}>
-                  {p.title.slice(0, 24)}
-                </a>
-              ))}
-            </div>
-          </div>
-        </div>
-        <h2 className="text-base font-bold mb-1">{project.title}</h2>
-        <p className="text-xs text-gray-500 mb-3">{project.genre} · {(volumes||[]).length}卷 · {(chapters||[]).length}章</p>
-        {(volumes || []).map((vol: any) => {
-          const vc = (chapters || []).filter((c: any) => c.volume_id === vol.id).sort((a: any, b: any) => a.sort_order - b.sort_order);
-          return (
-            <div key={vol.id} className="mb-2">
-              <h3 className="text-xs font-bold text-purple-400 mb-1">{vol.title} ({vc.length})</h3>
-              {vc.map((ch: any) => (
-                <a key={ch.id} href={`/project/${id}?cid=${ch.id}`}
-                  className="block w-full text-left text-xs px-2 py-1 rounded mb-0.5 text-gray-400 hover:bg-gray-800 hover:text-white transition">
-                  {ch.sort_order}. {ch.title.split('\n')[0].slice(0, 28)}{ch.content && " ✓"}
-                </a>
-              ))}
-            </div>
-          );
-        })}
-
-        {/* 角色管理 */}
-        <div className="mt-4 pt-3 border-t border-gray-800">
-          <h3 className="text-xs font-bold text-pink-400 mb-2">🎭 角色 ({(characters||[]).length})</h3>
-          {(characters || []).map((ch: any) => (
-            <a key={ch.id} href={`/project/${id}?cid=${ch.id}&edit=char`}
-              className="block text-xs px-2 py-1 text-gray-400 hover:text-white transition">{ch.name}</a>
-          ))}
-          <a href={`/project/${id}`} className="block text-xs px-2 py-1 mt-1 text-pink-500 hover:text-pink-400 transition">+ 添加角色</a>
-        </div>
+        <SidebarClient
+          projectId={id}
+          projectTitle={project.title}
+          genre={project.genre}
+          idea={project.summary}
+          volumes={volInfo}
+          allChapters={chapters || []}
+          allProjects={allProjects || []}
+          currentProjectId={id}
+          chapterRanges={chapterRanges}
+        />
       </aside>
 
-      <ChapterEditor projectId={id} project={project} chapters={chapters || []} characters={characters || []} />
+      <ChapterEditor projectId={id} project={project} chapters={chapters || []} characters={characters || []} dbVolumes={volumes || []} />
     </main>
   );
 }

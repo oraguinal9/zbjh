@@ -1,14 +1,13 @@
 import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
-import { checkFreeLimit, incrementCount } from "@/lib/rate-limit";
+import { incrementCount } from "@/lib/rate-limit";
+import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
 
 export async function POST(req: NextRequest) {
-  const limit = await checkFreeLimit(req);
-  if (!limit.allowed) {
-    return Response.json({ error: limit.error, needLogin: true }, { status: 429 });
-  }
-
   try {
+    const { paidUserId, errorResponse } = await checkQuotaOrError(req);
+    if (errorResponse) return errorResponse;
+
     const { idea, genre, outline } = await req.json();
     if (!idea && !outline) return Response.json({ error: "请先输入思路或生成大纲" }, { status: 400 });
 
@@ -23,9 +22,14 @@ export async function POST(req: NextRequest) {
 请直接输出5个书名，每行一个，不要编号，不要解释。`;
 
     const text = await aiChat(system, `题材：${genre}\n思路：${idea}\n大纲摘要：${(outline || "").slice(0, 1000)}`, { temperature: 0.9, max_tokens: 500 });
-    incrementCount(req);
-    const titles = text.split("\n").filter((l: string) => l.trim().length > 2).slice(0, 5);
 
+    if (paidUserId) {
+      await deductWords(paidUserId, countTextWords(text), "titles");
+    } else {
+      incrementCount(req);
+    }
+
+    const titles = text.split("\n").filter((l: string) => l.trim().length > 2).slice(0, 5);
     return Response.json({ titles: titles.length > 0 ? titles : ["未能生成，请手动输入"] });
   } catch (error: any) {
     console.error("[AI书名]", error.message);
