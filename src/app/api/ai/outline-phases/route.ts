@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
 import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
+import { buildOutlineSystemPrompt } from "@/lib/templates";
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,15 +26,19 @@ export async function POST(req: NextRequest) {
     const chCount = chEnd - chStart + 1;
     numPhases = Math.max(3, Math.min(5, Math.round(chCount / 10)));
 
-    const system = `你是番茄小说平台的资深大纲策划师。
+    const basePrompt = buildOutlineSystemPrompt(genre, wordCount);
+
+    const system = `${basePrompt}
 
 目标：为一部${wordCount}万字的${genre}小说，生成第${volumeIndex}卷《${volumeName}》的阶段性划分。
+
+本卷是五卷结构中的第${volumeIndex}卷，对应：${["开局", "发展", "高潮", "转折", "结局"][volumeIndex - 1] || ""}阶段。
 
 本卷概况：${volumeSummary || ""}
 本卷章节范围：第${chStart}-${chEnd}章（共${chCount}章）
 阶段数：${numPhases}个阶段
 
-严格按照以下格式输出，每阶段一行，用|分隔：
+第三层：阶段划分（严格按照以下格式，每阶段一行，用|分隔）：
 阶段号 | 阶段名 | 核心冲突/进展（20字以内） | 包含章节范围
 
 例如：
@@ -41,14 +46,16 @@ export async function POST(req: NextRequest) {
 2 | 遭遇危机 | 竞争对手打压，主角面临第一场恶战 | ${chStart + 10}-${chStart + 19}
 
 要求：
-- 每个阶段要有明确的起承转合
-- 阶段名要体现冲突和变化
-- 章节数在各阶段均匀分配`;
+- 每个阶段是1个完整的故事单元，有明确的起承转合
+- 阶段名要体现冲突和变化，不能是中性描述
+- 章节数在各阶段均匀分配
+- 第1阶段前3章必须有爽点
+- 最后1阶段要有卷尾高潮和通往下卷的钩子`;
 
     const user = `题材：${genre}。核心思路：${idea}。
-第${volumeIndex}卷：${volumeName}
+第${volumeIndex}卷：${volumeName}（对应整部小说的${["开局", "发展", "高潮", "转折", "结局"][volumeIndex - 1] || ""}阶段）
 ${volumeSummary ? `本卷核心：${volumeSummary}` : ""}
-章节范围：第${chStart}-${chEnd}章。请生成${numPhases}个阶段。`;
+章节范围：第${chStart}-${chEnd}章。请生成${numPhases}个阶段，每个阶段包含明确的起承转合。`;
 
     const result = await aiChat(system, user, { max_tokens: 2048, temperature: 0.8 });
 

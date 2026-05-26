@@ -3,6 +3,7 @@ import { aiChatStream } from "@/lib/ai";
 import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, withBillingStream } from "@/lib/billing";
 import { supabase } from "@/lib/supabase";
+import { buildOutlineSystemPrompt } from "@/lib/templates";
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,13 +36,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const system = `你是番茄小说平台的资深网文策划师，专精爆款节奏。
+    const basePrompt = buildOutlineSystemPrompt(genre, wordCount);
+
+    const system = `${basePrompt}
 
 ${overallContext ? `【全书背景】\n${overallContext}\n\n` : ""}目标：为${wordCount}万字${genre}小说生成第${volumeIndex}卷《${volumeName}》的逐章章卡。
 
 本卷共${numChapters}章，从第1章开始编号。
 
-严格按照以下格式输出每章的章卡，用"---"分隔不同章节：
+第四层：逐章章卡（严格按照以下格式输出，用"---"分隔不同章节）：
 
 ---
 ## 第1章：章名

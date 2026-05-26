@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { aiChatStream } from "@/lib/ai";
 import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, withBillingStream } from "@/lib/billing";
+import { buildWritingSystemPrompt } from "@/lib/templates";
 
 export async function POST(req: NextRequest) {
   try {
@@ -87,6 +88,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ===== 4. 构建提示词并调用AI =====
+    const genreTemplate = genre ? buildWritingSystemPrompt(genre) : "";
+
     const system = `你是番茄平台的爆款网文写手。输出必须遵循以下铁律：
 
 【核心原则】
@@ -104,13 +107,17 @@ export async function POST(req: NextRequest) {
 - 字数控制在2000-2500字，不超不长
 
 【描写要求】
+- 开篇快速入戏，前三段抓住读者注意力
 - 多用行动和对话表达情感，不用大段心理描写
+- 穿插对话、动作、心理、环境描写，画面感充足
 - 短句为主，不要排比句、不要华丽形容词
-- 画面感强：时间+地点+动作+对话，快速推进
 - 人物性格通过说话方式和行为区分，不要标签化
+- 减少重复句式和书面化表达，适配网络阅读习惯
+- 时间+地点+动作+对话，快速推进叙事
 
-${characterInfo ? `\n【角色设定】\n${characterInfo}\n请严格保持角色性格和说话风格一致。` : ""}
-${styleSample ? `\n【文风参考——请严格模仿以下文字的句式、节奏和描写风格】\n${styleSample.slice(0, 2000)}` : ""}`;
+${characterInfo ? `\n【角色设定】\n${characterInfo}\n请严格保持角色性格和说话风格一致，人物言行全程贴合人设。` : ""}
+${styleSample ? `\n【文风参考——请严格模仿以下文字的句式、节奏和描写风格】\n${styleSample.slice(0, 2000)}` : ""}
+${genreTemplate}`;
 
     const user = `作品：《${title || "未命名"}》（${genre || "都市"}）
 

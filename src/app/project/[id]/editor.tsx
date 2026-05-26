@@ -37,6 +37,9 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
   const [showStyleSample, setShowStyleSample] = useState(false);
   const [styleSaving, setStyleSaving] = useState(false);
   const [summaryStatus, setSummaryStatus] = useState<"" | "generating" | "done">("");
+  const [summaryContent, setSummaryContent] = useState("");
+  const [showSummary, setShowSummary] = useState(false);
+  const [mode, setMode] = useState<"write" | "plan" | "polish">("write");
 
   // 字数统计（中文去空白）
 
@@ -175,50 +178,78 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
             </span>
           ) : null}
         </div>
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          <button onClick={() => {
-            if (prevChapterEmpty) {
-              if (!confirm("上一章还没有内容，建议先完成上一章再续写。确定要继续吗？")) return;
-            }
-            aiAction("/api/ai/continue", { projectId, chapterId: activeChapter.id, title: project.title, genre: project.genre, content, outline: activeChapter.title, targetWords });
-          }}
-            disabled={loading} className={`px-3 py-1.5 disabled:opacity-50 rounded-lg text-xs transition ${prevChapterEmpty ? "bg-orange-700 hover:bg-orange-600" : "bg-purple-600 hover:bg-purple-700"}`}>🤖 AI续写{prevChapterEmpty ? " ⚠️" : ""}</button>
-          <select value={targetWords} onChange={(e) => setTargetWords(Number(e.target.value))}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300">
-            <option value={1500}>1500字</option><option value={2000}>2000字</option><option value={2500}>2500字</option><option value={3000}>3000字</option>
-          </select>
-          <button onClick={() => aiAction("/api/ai/polish", { text: content, projectId })}
-            disabled={loading} className="px-3 py-1.5 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 rounded-lg text-xs transition">✨ 去AI味</button>
-          <button onClick={async () => {
-            if (!content) return;
-            const target = prompt("目标字数（当前" + wordCount + "字）：", String(Math.max(wordCount + 500, 2000)));
-            if (!target || isNaN(Number(target))) return;
-            setLoading(true);
-            const r = await authFetch("/api/ai/expand", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: content, targetWords: Number(target), projectId }) });
-            const d = await r.json();
-            if (d.result) {
+        <div className="flex gap-1 mb-3 bg-gray-900 rounded-lg p-1 border border-gray-800 w-fit">
+          <button onClick={() => setMode("plan")}
+            className={`px-4 py-1.5 rounded-md text-xs font-medium transition ${mode === "plan" ? "bg-blue-600 text-white shadow" : "text-gray-400 hover:text-white"}`}>📐 规划</button>
+          <button onClick={() => setMode("write")}
+            className={`px-4 py-1.5 rounded-md text-xs font-medium transition ${mode === "write" ? "bg-purple-600 text-white shadow" : "text-gray-400 hover:text-white"}`}>✍️ 写作</button>
+          <button onClick={() => setMode("polish")}
+            className={`px-4 py-1.5 rounded-md text-xs font-medium transition ${mode === "polish" ? "bg-pink-600 text-white shadow" : "text-gray-400 hover:text-white"}`}>✨ 精修</button>
+          <span className="w-px bg-gray-700 mx-1" />
+          <span className={`px-3 py-1.5 text-xs ${wordColor}`}>📝 {wordCount}字 {wordStatus}</span>
+          <span className={`px-3 py-1.5 text-xs ${dialogueColor}`}>💬 对话{dialogueRatio}% {dialogueStatus}</span>
+        </div>
+
+        {/* === 规划模式 === */}
+        {mode === "plan" && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            <button onClick={() => setShowCharForm(!showCharForm)}
+              className={`px-3 py-1.5 rounded-lg text-xs transition ${showCharForm ? "bg-pink-600" : "bg-gray-800 hover:bg-gray-700"}`}>🎭 角色({charList.length})</button>
+            <button onClick={() => setShowStyleSample(!showStyleSample)}
+              className={`px-3 py-1.5 rounded-lg text-xs transition ${showStyleSample ? "bg-amber-600" : "bg-gray-800 hover:bg-gray-700"}`}>📝 文风</button>
+            <button onClick={() => {
+              if (tab === "outline") { setTab(""); return; }
               const lines = activeChapter.title.split('\n');
-              setContent(d.result);
-              save(d.result);
-            }
-            if (d.error) alert(d.error);
-            setLoading(false);
-          }} disabled={loading || !content}
-            className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 rounded-lg text-xs transition">📏 补字数</button>
-          <span className={`px-3 py-1.5 bg-gray-800 rounded-lg text-xs ${wordColor}`}>📝 {wordCount}字 {wordStatus}</span>
-          <span className={`px-3 py-1.5 bg-gray-800 rounded-lg text-xs ${dialogueColor}`}>💬 对话{dialogueRatio}% {dialogueStatus}</span>
-          <button onClick={() => setShowCharForm(!showCharForm)}
-            className={`px-3 py-1.5 rounded-lg text-xs transition ${showCharForm ? "bg-pink-600" : "bg-gray-800 hover:bg-gray-700"}`}>🎭 角色({charList.length})</button>
-          <button onClick={() => setShowStyleSample(!showStyleSample)}
-            className={`px-3 py-1.5 rounded-lg text-xs transition ${showStyleSample ? "bg-amber-600" : "bg-gray-800 hover:bg-gray-700"}`}>📝 文风</button>
-          <button onClick={() => setTab(tab === "comply" ? "" : "comply")}
-            className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "comply" ? "bg-red-600" : "bg-gray-800 hover:bg-gray-700"}`}>🛡️ 合规({warnings.length})</button>
-          <button onClick={() => setTab(tab === "hooks" ? "" : "hooks")}
-            className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "hooks" ? "bg-yellow-600" : "bg-gray-800 hover:bg-gray-700"}`}>🎣 钩子({hookResult.totalHooks})</button>
-          <button onClick={async () => {
-            await save(content);
-            // 保存后自动生成摘要（仅当有内容且无摘要时）
-            if (content?.trim() && wordCount > 200 && !summaryStatus) {
+              setChapterName(lines[0]);
+              setOutlineText(lines.slice(1).join('\n').trim());
+              setTab("outline");
+            }}
+              className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "outline" ? "bg-blue-600" : "bg-gray-800 hover:bg-gray-700"}`}>📋 章纲</button>
+          </div>
+        )}
+
+        {/* === 写作模式 === */}
+        {mode === "write" && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            <button onClick={() => {
+              if (prevChapterEmpty) {
+                if (!confirm("上一章还没有内容，建议先完成上一章再续写。确定要继续吗？")) return;
+              }
+              aiAction("/api/ai/continue", { projectId, chapterId: activeChapter.id, title: project.title, genre: project.genre, content, outline: activeChapter.title, targetWords });
+            }}
+              disabled={loading} className={`px-3 py-1.5 disabled:opacity-50 rounded-lg text-xs transition ${prevChapterEmpty ? "bg-orange-700 hover:bg-orange-600" : "bg-purple-600 hover:bg-purple-700"}`}>🤖 AI续写{prevChapterEmpty ? " ⚠️" : ""}</button>
+            <select value={targetWords} onChange={(e) => setTargetWords(Number(e.target.value))}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300">
+              <option value={1500}>1500字</option><option value={2000}>2000字</option><option value={2500}>2500字</option><option value={3000}>3000字</option>
+            </select>
+            <button onClick={async () => {
+              if (!content) return;
+              const target = prompt("目标字数（当前" + wordCount + "字）：", String(Math.max(wordCount + 500, 2000)));
+              if (!target || isNaN(Number(target))) return;
+              setLoading(true);
+              const r = await authFetch("/api/ai/expand", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: content, targetWords: Number(target), projectId }) });
+              const d = await r.json();
+              if (d.result) {
+                const lines = activeChapter.title.split('\n');
+                setContent(d.result);
+                save(d.result);
+              }
+              if (d.error) alert(d.error);
+              setLoading(false);
+            }} disabled={loading || !content}
+              className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 rounded-lg text-xs transition">📏 补字数</button>
+            <span className="w-px bg-gray-700 mx-0.5" />
+            <button onClick={async () => { await save(content); }}
+              className="px-3 py-1.5 bg-green-800 hover:bg-green-700 rounded-lg text-xs transition">💾 保存</button>
+            <button onClick={async () => {
+              if (showSummary) { setShowSummary(false); return; }
+              // 优先显示已有摘要
+              if ((activeChapter as any)?.summary) {
+                setSummaryContent((activeChapter as any).summary);
+                setShowSummary(true);
+                return;
+              }
+              if (!content?.trim()) { alert("请先撰写章节内容"); return; }
               setSummaryStatus("generating");
               try {
                 const r = await fetch("/api/ai/summarize", {
@@ -226,68 +257,58 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
                   body: JSON.stringify({ chapterId: activeChapter.id, content, projectId }),
                 });
                 const d = await r.json();
-                if (d.summary) setSummaryStatus("done");
-              } catch (e) { console.error("[摘要生成异常]", e); }
+                if (d.summary) {
+                  setSummaryContent(d.summary);
+                  setShowSummary(true);
+                  setSummaryStatus("done");
+                } else alert("摘要生成失败：" + (d.error || "未知错误"));
+              } catch (e: any) { alert("摘要生成失败：" + (e.message || "网络错误")); }
               setTimeout(() => setSummaryStatus(""), 3000);
-            }
-          }}
-            className="px-3 py-1.5 bg-green-800 hover:bg-green-700 rounded-lg text-xs transition">💾 保存{summaryStatus === "generating" ? "📝" : summaryStatus === "done" ? "✅" : ""}</button>
-          <button onClick={async () => {
-            if (!content?.trim()) { alert("请先撰写章节内容"); return; }
-            if (summaryStatus === "generating") return;
-            setSummaryStatus("generating");
-            try {
-              const r = await fetch("/api/ai/summarize", {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ chapterId: activeChapter.id, content, projectId }),
-              });
-              const d = await r.json();
-              if (d.summary) setSummaryStatus("done");
-              else alert("摘要生成失败：" + (d.error || "未知错误"));
-            } catch (e: any) { alert("摘要生成失败：" + (e.message || "网络错误")); }
-            setTimeout(() => setSummaryStatus(""), 3000);
-          }}
-            className="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 rounded-lg text-xs transition">📝 摘要{summaryStatus === "generating" ? "..." : summaryStatus === "done" ? "✅" : ""}</button>
-          <span className={`text-xs flex items-center ${saveStatus === "saving" ? "text-yellow-400" : saveStatus === "saved" ? "text-green-400" : saveStatus === "error" ? "text-red-400" : "hidden"}`}>
-            {saveStatus === "saving" ? "保存中..." : saveStatus === "saved" ? "已保存" : saveStatus === "error" ? "保存失败" : ""}
-          </span>
-          <div className="flex gap-1 items-center">
-            <button onClick={() => {
-              if (content) exportSingleChapter(activeChapter.title.split('\n')[0], content, exportFmt);
-            }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs transition">📥 导出</button>
-            <select value={exportFmt} onChange={(e) => setExportFmt(e.target.value as ExportFormat)}
-              className="bg-gray-800 border border-gray-700 rounded-lg px-1 py-1.5 text-xs text-gray-300 w-12">
-              <option value="txt">.txt</option><option value="markdown">.md</option>
-            </select>
+            }}
+              className={`px-3 py-1.5 rounded-lg text-xs transition ${showSummary ? "bg-indigo-600" : "bg-indigo-700 hover:bg-indigo-600"}`}>📝 摘要{summaryStatus === "generating" ? "..." : summaryStatus === "done" ? "✨" : ""}</button>
+            <span className={`text-xs flex items-center ${saveStatus === "saving" ? "text-yellow-400" : saveStatus === "saved" ? "text-green-400" : saveStatus === "error" ? "text-red-400" : "hidden"}`}>
+              {saveStatus === "saving" ? "保存中..." : saveStatus === "saved" ? "已保存" : saveStatus === "error" ? "保存失败" : ""}
+            </span>
           </div>
-          <button onClick={async () => {
-            const all = chapters.filter((c: any) => c.content).sort((a: any, b: any) => a.sort_order - b.sort_order);
-            if (!all.length) return;
-            exportFullProject(project.title, all.map((c: any) => ({ title: c.title.split('\n')[0], content: c.content })), exportFmt);
-            setBulkMsg(`已导出${all.length}章`);
-            setTimeout(() => setBulkMsg(""), 2000);
-          }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs transition">📦 全卷</button>
-          <button onClick={() => {
-            setShowBatch(!showBatch);
-            if (!showBatch) setSelectedIds(new Set());
-          }}
-            className={`px-3 py-1.5 rounded-lg text-xs transition ${showBatch ? "bg-orange-600" : "bg-gray-800 hover:bg-gray-700"}`}>📋 批量</button>
-          <button onClick={() => {
-            if (tab === "outline") { setTab(""); return; }
-            const lines = activeChapter.title.split('\n');
-            setChapterName(lines[0]);
-            setOutlineText(lines.slice(1).join('\n').trim());
-            setTab("outline");
-          }}
-            className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "outline" ? "bg-blue-600" : "bg-gray-800 hover:bg-gray-700"}`}>📋 章纲</button>
-          <button onClick={async () => {
-            setTab("versions"); setLoading(true);
-            const r = await authFetch(`/api/projects/${projectId}/chapters/${activeChapter.id}/versions`);
-            const d = await r.json();
-            setVersions(d || []);
-            setLoading(false);
-          }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs transition">📜 历史</button>
-        </div>
+        )}
+
+        {/* === 精修模式 === */}
+        {mode === "polish" && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            <button onClick={() => aiAction("/api/ai/polish", { text: content, projectId })}
+              disabled={loading} className="px-3 py-1.5 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 rounded-lg text-xs transition">✨ 去AI味</button>
+            <button onClick={() => setTab(tab === "comply" ? "" : "comply")}
+              className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "comply" ? "bg-red-600" : "bg-gray-800 hover:bg-gray-700"}`}>🛡️ 合规({warnings.length})</button>
+            <button onClick={() => setTab(tab === "hooks" ? "" : "hooks")}
+              className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "hooks" ? "bg-yellow-600" : "bg-gray-800 hover:bg-gray-700"}`}>🎣 钩子({hookResult.totalHooks})</button>
+            <button onClick={async () => {
+              setTab("versions"); setLoading(true);
+              const r = await authFetch(`/api/projects/${projectId}/chapters/${activeChapter.id}/versions`);
+              const d = await r.json();
+              setVersions(d || []);
+              setLoading(false);
+            }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs transition">📜 历史</button>
+            <span className="w-px bg-gray-700 mx-0.5" />
+            {!showBatch && <button onClick={() => setShowBatch(!showBatch)}
+              className={`px-3 py-1.5 rounded-lg text-xs transition ${showBatch ? "bg-orange-600" : "bg-gray-800 hover:bg-gray-700"}`}>📋 批量</button>}
+            <div className="flex gap-1 items-center">
+              <button onClick={() => {
+                if (content) exportSingleChapter(activeChapter.title.split('\n')[0], content, exportFmt);
+              }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs transition">📥 导出</button>
+              <select value={exportFmt} onChange={(e) => setExportFmt(e.target.value as ExportFormat)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-1 py-1.5 text-xs text-gray-300 w-12">
+                <option value="txt">.txt</option><option value="markdown">.md</option>
+              </select>
+            </div>
+            <button onClick={async () => {
+              const all = chapters.filter((c: any) => c.content).sort((a: any, b: any) => a.sort_order - b.sort_order);
+              if (!all.length) return;
+              exportFullProject(project.title, all.map((c: any) => ({ title: c.title.split('\n')[0], content: c.content })), exportFmt);
+              setBulkMsg(`已导出${all.length}章`);
+              setTimeout(() => setBulkMsg(""), 2000);
+            }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs transition">📦 全卷</button>
+          </div>
+        )}
 
         {showCharForm && (
           <div className="mb-3 p-3 bg-gray-900 border border-pink-800 rounded-lg text-xs">
@@ -514,7 +535,17 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
           </div>
         )}
 
-        <textarea value={content} onChange={(e) => setContent(e.target.value)}
+	        {showSummary && summaryContent && (
+	          <div className="mb-3 p-3 bg-gray-900 border border-indigo-800 rounded-lg text-xs">
+	            <div className="flex items-center justify-between mb-1">
+	              <span className="font-bold text-indigo-400">📝 剧情摘要</span>
+	              <button onClick={() => setShowSummary(false)} className="text-gray-600 hover:text-white">✕</button>
+	            </div>
+	            <p className="text-gray-300 leading-relaxed whitespace-pre-wrap">{summaryContent}</p>
+	          </div>
+	        )}
+
+	        <textarea value={content} onChange={(e) => setContent(e.target.value)}
           className="w-full h-80 bg-gray-900 border border-gray-800 rounded-xl p-4 text-sm leading-relaxed resize-none focus:outline-none focus:border-purple-500" />
 
         {aiResult && (
