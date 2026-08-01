@@ -54,7 +54,7 @@ function LoginFormInner() {
     setLoading(true); setMsg("");
 
     if (isSignUp) {
-      const { error } = await signUp(email, password);
+      const { data, error } = await signUp(email, password);
       if (error) {
         if (error.message.includes("37") || error.message.includes("seconds") || error.message.includes("security") || error.message.includes("rate limit") || error.message.includes("exceeded")) {
           startCooldown();
@@ -65,6 +65,14 @@ function LoginFormInner() {
         // 保存邀请码，登录后自动绑定
         if (inviteCode) {
           localStorage.setItem("pending_invite", inviteCode);
+        }
+        // 邮箱确认关闭时（Confirm email=off），注册即自动登录
+        const user = data?.user;
+        const needsConfirm = data?.session == null && (user as any)?.confirmation_sent_at != null;
+        if (!needsConfirm && data?.session) {
+          await saveSession();
+          window.location.href = "/dashboard";
+          return;
         }
         setMsg("注册成功！请查看邮箱确认链接，或直接登录。");
         setMsgType("success");
