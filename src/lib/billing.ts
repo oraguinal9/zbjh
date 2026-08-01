@@ -143,35 +143,30 @@ export async function checkQuotaOrError(req: NextRequest): Promise<{
   const paidUserId = await getPaidUser(req);
   if (paidUserId) return { paidUserId };
 
-  // 已登录但余额为0 → 先走每日免费次数，次数用尽再引导充值
+  // 未付费 → 先走每日免费次数（登录 100 次/日，匿名 3 次/日）
   const { getCurrentUser } = await import("@/lib/supabase");
   const user = await getCurrentUser();
-
-  // 未付费 → 走免费次数（已登录 100 次/日，匿名 3 次/日）
   const limit = await checkFreeLimit(req);
-  if (!limit.allowed) {
+  if (limit.allowed) return { paidUserId: null };
+
+  // 免费次数用尽：已登录且有余额 → 走余额扣费；已登录无余额 → 引导充值；匿名 → 引导登录
+  if (user) {
+    const balance = await getUserBalance(user.id);
+    if (balance > 0) return { paidUserId: user.id };
     return {
       paidUserId: null,
       errorResponse: Response.json(
-        { error: limit.error, needLogin: !user, needRecharge: !!user },
-        { status: 429 },
+        { error: "免费次数已用完，充值后畅享无限写作", needRecharge: true },
+        { status: 402 },
       ),
     };
   }
 
-  // 免费次数用完后，若已登录则引导充值
-  if (user) {
-    const balance = await getUserBalance(user.id);
-    if (balance === 0) {
-      return {
-        paidUserId: null,
-        errorResponse: Response.json(
-          { error: "余额不足，请充值后续续使用AI功能", needRecharge: true },
-          { status: 402 },
-        ),
-      };
-    }
-  }
-
-  return { paidUserId: null };
+  return {
+    paidUserId: null,
+    errorResponse: Response.json(
+      { error: limit.error, needLogin: true },
+      { status: 429 },
+    ),
+  };
 }
