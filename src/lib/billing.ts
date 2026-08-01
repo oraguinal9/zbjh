@@ -143,9 +143,23 @@ export async function checkQuotaOrError(req: NextRequest): Promise<{
   const paidUserId = await getPaidUser(req);
   if (paidUserId) return { paidUserId };
 
-  // 已登录但余额为0 → 引导充值
+  // 已登录但余额为0 → 先走每日免费次数，次数用尽再引导充值
   const { getCurrentUser } = await import("@/lib/supabase");
   const user = await getCurrentUser();
+
+  // 未付费 → 走免费次数（已登录 100 次/日，匿名 3 次/日）
+  const limit = await checkFreeLimit(req);
+  if (!limit.allowed) {
+    return {
+      paidUserId: null,
+      errorResponse: Response.json(
+        { error: limit.error, needLogin: !user, needRecharge: !!user },
+        { status: 429 },
+      ),
+    };
+  }
+
+  // 免费次数用完后，若已登录则引导充值
   if (user) {
     const balance = await getUserBalance(user.id);
     if (balance === 0) {
@@ -157,18 +171,6 @@ export async function checkQuotaOrError(req: NextRequest): Promise<{
         ),
       };
     }
-  }
-
-  // 未付费 → 走免费次数
-  const limit = await checkFreeLimit(req);
-  if (!limit.allowed) {
-    return {
-      paidUserId: null,
-      errorResponse: Response.json(
-        { error: limit.error, needLogin: !user },
-        { status: 429 },
-      ),
-    };
   }
 
   return { paidUserId: null };
