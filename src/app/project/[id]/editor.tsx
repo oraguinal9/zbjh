@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { authFetch } from "@/lib/auth";
 import { detectHooks } from "@/lib/hooks";
-import { exportSingleChapter, exportFullProject, type ExportFormat } from "@/lib/export";
+import { exportSingleChapter, exportFullProject, copyPublishText, type ExportFormat } from "@/lib/export";
 import type { Project, Chapter, Character } from "@/types";
 
 export function ChapterEditor({ projectId, project, chapters, characters, dbVolumes }: { projectId: string; project: Project; chapters: Chapter[]; characters: Character[]; dbVolumes: any[] }) {
@@ -19,6 +19,11 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
   const [content, setContent] = useState("");
   const [aiResult, setAiResult] = useState("");
   const [loading, setLoading] = useState(false);
+  // AI 结果的默认采用方式：续写=追加，润色/改写=替换
+  const [aiApplyMode, setAiApplyMode] = useState<"append" | "replace">("append");
+  const [aiStreaming, setAiStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const aiResultRef = useRef<HTMLPreElement | null>(null);
   const [tab, setTab] = useState<"" | "comply" | "versions" | "outline" | "hooks">("");
   const [targetWords, setTargetWords] = useState(2500);
   const [versions, setVersions] = useState<any[]>([]);
@@ -79,18 +84,87 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [content, activeChapter, save]);
 
-  const aiAction = async (endpoint: string, body: any) => {
-    setLoading(true); setAiResult("");
-    const r = await authFetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({ error: `请求失败 (${r.status})` }));
-      setAiResult(""); setLoading(false);
-      alert(err.error || "请求失败");
-      return;
+  // AI 调用：支持流式逐字渲染 + 中断。applyMode 决定结果默认是追加还是替换正文
+  const aiAction = async (endpoint: string, body: Record<string, unknown>, applyMode: "append" | "replace" = "append") => {
+    setLoading(true); setAiResult(""); setAiApplyMode(applyMode);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    try {
+      const r = await authFetch(endpoint, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body), signal: ctrl.signal,
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ error: `请求失败 (${r.status})` }));
+        setAiResult("");
+        alert(err.error || "请求失败");
+        return;
+      }
+      // polish 返回 JSON，其余接口是 text/plain 流式
+      if (endpoint.includes("polish")) {
+        const d = await r.json();
+        setAiResult(d.result || "");
+      } else {
+        const reader = r.body?.getReader();
+        if (!reader) {
+          setAiResult(await r.text());
+        } else {
+          setAiStreaming(true);
+          const decoder = new TextDecoder();
+          let acc = "";
+          // rAF 节流：每帧最多提交一次 UI 更新，避免长文输出时疯狂重渲染
+          let raf = 0;
+          const commit = () => { raf = 0; setAiResult(acc); };
+          const flush = () => { if (raf) { cancelAnimationFrame(raf); commit(); } };
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            acc += decoder.decode(value, { stream: true });
+            if (!raf) raf = requestAnimationFrame(commit);
+          }
+          flush();
+        }
+      }
+    } catch (e) {
+      // 用户主动中断：保留已生成的部分，不报错
+      const err = e as { name?: string; message?: string };
+      if (err?.name !== "AbortError") alert(err?.message || "生成失败，请重试");
+    } finally {
+      setAiStreaming(false); setLoading(false); abortRef.current = null;
     }
-    const text = endpoint.includes("polish") ? (await r.json()).result : await r.text();
-    setAiResult(text); setLoading(false);
   };
+
+  // 停止生成：中断请求，已生成内容保留可用
+  const stopGenerate = () => { abortRef.current?.abort(); };
+
+  // 采用 AI 结果：append=接到正文末尾（续写场景）；replace=整章替换（去AI味/改写场景）
+  const applyResult = async (mode: "append" | "replace") => {
+    if (!aiResult || !activeChapter) return;
+    if (mode === "replace" && content.trim()
+      && !confirm("将用 AI 结果替换当前整章正文，确定吗？\n（原文已存入「历史」，可随时恢复）")) return;
+    // 替换前先把原文存一份版本，避免误操作丢稿
+    if (mode === "replace" && content.trim()) {
+      await authFetch(`/api/projects/${projectId}/chapters/${activeChapter.id}/versions`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ generated_content: content, prompt: "替换前原文备份", model_used: "backup" }),
+      }).catch(() => {});
+    }
+    const next = mode === "append" ? (content ? content + "\n\n" + aiResult : aiResult) : aiResult;
+    setContent(next);
+    await save(next);
+    await authFetch(`/api/projects/${projectId}/chapters/${activeChapter.id}/versions`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ generated_content: aiResult, prompt: activeChapter.title, model_used: "deepseek" }),
+    }).catch(() => {});
+    setAiResult("");
+  };
+
+  // 流式输出时自动滚动到底部，让用户始终看到最新文字
+  useEffect(() => {
+    if (aiStreaming && aiResultRef.current) {
+      aiResultRef.current.scrollTop = aiResultRef.current.scrollHeight;
+    }
+  }, [aiResult, aiStreaming]);
 
   // 字数统计（中文去空白）
   const wordCount = content ? content.replace(/\s/g, "").length : 0;
@@ -131,6 +205,33 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
   // 钩子检测
   const hookResult = useMemo(() => detectHooks(content), [content]);
 
+  // 快捷键：Ctrl/Cmd+S 保存、Ctrl/Cmd+Enter 续写、Esc 停止生成
+  const shortcutRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    shortcutRef.current = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (activeChapter) save(content);
+      } else if (mod && e.key === "Enter") {
+        e.preventDefault();
+        if (!loading && activeChapter) {
+          aiAction("/api/ai/continue", {
+            projectId, chapterId: activeChapter.id, title: project.title,
+            genre: project.genre, content, outline: activeChapter.title, targetWords,
+          }, "append");
+        }
+      } else if (e.key === "Escape" && loading) {
+        stopGenerate();
+      }
+    };
+  });
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => shortcutRef.current(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
   // 合规敏感词扫描（使用单词边界避免误报）
   const SENSITIVE: Record<string, string> = {
     "镇国将军": "封建→名门望族", "大明宗室": "封建→大明望族", "王爷": "封建→名门之后",
@@ -156,11 +257,19 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
   }
 
   if (!activeChapter) {
-    return <div className="flex-1 h-screen flex items-center justify-center text-gray-600"><div className="text-center"><p className="text-4xl mb-4">📖</p><p className="text-lg">选择左侧章节开始写作</p></div></div>;
+    return (
+      <div className="flex-1 h-screen flex items-center justify-center text-gray-600 p-6">
+        <div className="text-center">
+          <p className="text-4xl mb-4">📖</p>
+          <p className="text-lg hidden md:block">选择左侧章节开始写作</p>
+          <p className="text-base md:hidden">点左上角「☰ 目录」选择章节</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="flex-1 h-screen overflow-y-auto p-6">
+    <div className="flex-1 h-screen overflow-y-auto p-3 pt-12 md:p-6">
       <div className="max-w-4xl mx-auto">
         <h2 className="text-lg font-bold mb-1">{activeChapter.title.split('\n')[0]}</h2>
         <div className="text-xs text-gray-500 mb-2">
@@ -178,14 +287,14 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
             </span>
           ) : null}
         </div>
-        <div className="flex gap-1 mb-3 bg-gray-900 rounded-lg p-1 border border-gray-800 w-fit">
+        <div className="flex flex-wrap items-center gap-1 mb-3 bg-gray-900 rounded-lg p-1 border border-gray-800 w-full md:w-fit">
           <button onClick={() => setMode("plan")}
             className={`px-4 py-1.5 rounded-md text-xs font-medium transition ${mode === "plan" ? "bg-blue-600 text-white shadow" : "text-gray-400 hover:text-white"}`}>📐 规划</button>
           <button onClick={() => setMode("write")}
             className={`px-4 py-1.5 rounded-md text-xs font-medium transition ${mode === "write" ? "bg-purple-600 text-white shadow" : "text-gray-400 hover:text-white"}`}>✍️ 写作</button>
           <button onClick={() => setMode("polish")}
             className={`px-4 py-1.5 rounded-md text-xs font-medium transition ${mode === "polish" ? "bg-pink-600 text-white shadow" : "text-gray-400 hover:text-white"}`}>✨ 精修</button>
-          <span className="w-px bg-gray-700 mx-1" />
+          <span className="hidden md:block w-px self-stretch bg-gray-700 mx-1" />
           <span className={`px-3 py-1.5 text-xs ${wordColor}`}>📝 {wordCount}字 {wordStatus}</span>
           <span className={`px-3 py-1.5 text-xs ${dialogueColor}`}>💬 对话{dialogueRatio}% {dialogueStatus}</span>
         </div>
@@ -211,13 +320,18 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
         {/* === 写作模式 === */}
         {mode === "write" && (
           <div className="flex flex-wrap gap-1.5 mb-4">
-            <button onClick={() => {
-              if (prevChapterEmpty) {
-                if (!confirm("上一章还没有内容，建议先完成上一章再续写。确定要继续吗？")) return;
-              }
-              aiAction("/api/ai/continue", { projectId, chapterId: activeChapter.id, title: project.title, genre: project.genre, content, outline: activeChapter.title, targetWords });
-            }}
-              disabled={loading} className={`px-3 py-1.5 disabled:opacity-50 rounded-lg text-xs transition ${prevChapterEmpty ? "bg-orange-700 hover:bg-orange-600" : "bg-purple-600 hover:bg-purple-700"}`}>🤖 AI续写{prevChapterEmpty ? " ⚠️" : ""}</button>
+            {loading ? (
+              <button onClick={stopGenerate} title="快捷键 Esc"
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-xs transition animate-pulse">⏹ 停止生成</button>
+            ) : (
+              <button onClick={() => {
+                if (prevChapterEmpty) {
+                  if (!confirm("上一章还没有内容，建议先完成上一章再续写。确定要继续吗？")) return;
+                }
+                aiAction("/api/ai/continue", { projectId, chapterId: activeChapter.id, title: project.title, genre: project.genre, content, outline: activeChapter.title, targetWords }, "append");
+              }} title="快捷键 Ctrl+Enter"
+                className={`px-3 py-1.5 rounded-lg text-xs transition ${prevChapterEmpty ? "bg-orange-700 hover:bg-orange-600" : "bg-purple-600 hover:bg-purple-700"}`}>🤖 AI续写{prevChapterEmpty ? " ⚠️" : ""}</button>
+            )}
             <select value={targetWords} onChange={(e) => setTargetWords(Number(e.target.value))}
               className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300">
               <option value={1500}>1500字</option><option value={2000}>2000字</option><option value={2500}>2500字</option><option value={3000}>3000字</option>
@@ -238,8 +352,8 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
               setLoading(false);
             }} disabled={loading || !content}
               className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 rounded-lg text-xs transition">📏 补字数</button>
-            <span className="w-px bg-gray-700 mx-0.5" />
-            <button onClick={async () => { await save(content); }}
+            <span className="hidden md:block w-px self-stretch bg-gray-700 mx-0.5" />
+            <button onClick={async () => { await save(content); }} title="快捷键 Ctrl+S"
               className="px-3 py-1.5 bg-green-800 hover:bg-green-700 rounded-lg text-xs transition">💾 保存</button>
             <button onClick={async () => {
               if (showSummary) { setShowSummary(false); return; }
@@ -275,8 +389,8 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
         {/* === 精修模式 === */}
         {mode === "polish" && (
           <div className="flex flex-wrap gap-1.5 mb-4">
-            <button onClick={() => aiAction("/api/ai/polish", { text: content, projectId })}
-              disabled={loading} className="px-3 py-1.5 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 rounded-lg text-xs transition">✨ 去AI味</button>
+            <button onClick={() => aiAction("/api/ai/polish", { text: content, projectId }, "replace")}
+              disabled={loading || !content} className="px-3 py-1.5 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 rounded-lg text-xs transition">✨ 去AI味{loading ? "中..." : ""}</button>
             <button onClick={() => setTab(tab === "comply" ? "" : "comply")}
               className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "comply" ? "bg-red-600" : "bg-gray-800 hover:bg-gray-700"}`}>🛡️ 合规({warnings.length})</button>
             <button onClick={() => setTab(tab === "hooks" ? "" : "hooks")}
@@ -288,16 +402,23 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
               setVersions(d || []);
               setLoading(false);
             }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs transition">📜 历史</button>
-            <span className="w-px bg-gray-700 mx-0.5" />
+            <span className="hidden md:block w-px self-stretch bg-gray-700 mx-0.5" />
             {!showBatch && <button onClick={() => setShowBatch(!showBatch)}
               className={`px-3 py-1.5 rounded-lg text-xs transition ${showBatch ? "bg-orange-600" : "bg-gray-800 hover:bg-gray-700"}`}>📋 批量</button>}
+            <button onClick={async () => {
+              if (!content) return;
+              const ok = await copyPublishText(activeChapter.title.split('\n')[0], content);
+              setBulkMsg(ok ? "📋 已复制发布版，可直接粘贴到番茄/起点" : "复制失败，请改用导出");
+              setTimeout(() => setBulkMsg(""), 2500);
+            }} disabled={!content}
+              className="px-3 py-1.5 bg-teal-700 hover:bg-teal-600 disabled:opacity-50 rounded-lg text-xs transition">📋 复制发布版</button>
             <div className="flex gap-1 items-center">
               <button onClick={() => {
                 if (content) exportSingleChapter(activeChapter.title.split('\n')[0], content, exportFmt);
               }} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs transition">📥 导出</button>
               <select value={exportFmt} onChange={(e) => setExportFmt(e.target.value as ExportFormat)}
-                className="bg-gray-800 border border-gray-700 rounded-lg px-1 py-1.5 text-xs text-gray-300 w-12">
-                <option value="txt">.txt</option><option value="markdown">.md</option>
+                className="bg-gray-800 border border-gray-700 rounded-lg px-1 py-1.5 text-xs text-gray-300">
+                <option value="txt">.txt</option><option value="markdown">.md</option><option value="publish">发布版</option>
               </select>
             </div>
             <button onClick={async () => {
@@ -546,22 +667,36 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
 	        )}
 
 	        <textarea value={content} onChange={(e) => setContent(e.target.value)}
-          className="w-full h-80 bg-gray-900 border border-gray-800 rounded-xl p-4 text-sm leading-relaxed resize-none focus:outline-none focus:border-purple-500" />
+          className="w-full h-[55vh] md:h-80 bg-gray-900 border border-gray-800 rounded-xl p-3 md:p-4 text-sm leading-relaxed resize-none focus:outline-none focus:border-purple-500" />
 
-        {aiResult && (
+        {(aiResult || loading) && (
           <div className="mt-4 bg-gray-900 border border-green-800 rounded-xl p-4">
-            <div className="flex justify-between mb-2">
-              <h3 className="text-sm font-bold text-green-400">AI结果</h3>
-              <div className="flex gap-2">
-                <button onClick={() => setAiResult("")} className="text-xs text-gray-500 hover:text-white">放弃</button>
-                <button onClick={async () => {
-                  setContent(p => p + "\n\n" + aiResult);
-                  await authFetch(`/api/projects/${projectId}/chapters/${activeChapter.id}/versions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ generated_content: aiResult, prompt: activeChapter.title, model_used: "deepseek" }) });
-                  setAiResult("");
-                }} className="text-xs px-2 py-1 bg-green-600 hover:bg-green-700 rounded">✅ 采用</button>
+            <div className="flex justify-between items-center gap-2 flex-wrap mb-2">
+              <h3 className="text-sm font-bold text-green-400">
+                AI结果
+                <span className="ml-2 text-xs font-normal text-gray-500">{aiResult.replace(/\s/g, "").length}字</span>
+                {loading && <span className="ml-2 text-xs font-normal text-amber-400 animate-pulse">生成中…</span>}
+              </h3>
+              <div className="flex gap-2 items-center">
+                {loading ? (
+                  <button onClick={stopGenerate}
+                    className="text-xs px-2 py-1 bg-red-600 hover:bg-red-700 rounded transition">⏹ 停止生成</button>
+                ) : (
+                  <>
+                    <button onClick={() => setAiResult("")} className="text-xs text-gray-500 hover:text-white">放弃</button>
+                    <button onClick={() => applyResult("append")}
+                      className={`text-xs px-2 py-1 rounded transition ${aiApplyMode === "append" ? "bg-green-600 hover:bg-green-700" : "bg-gray-700 hover:bg-gray-600"}`}>⬇️ 追加到正文</button>
+                    <button onClick={() => applyResult("replace")}
+                      className={`text-xs px-2 py-1 rounded transition ${aiApplyMode === "replace" ? "bg-green-600 hover:bg-green-700" : "bg-gray-700 hover:bg-gray-600"}`}>🔄 替换全文</button>
+                  </>
+                )}
               </div>
             </div>
-            <pre className="text-xs text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">{aiResult}</pre>
+            {!aiResult && loading && <p className="text-xs text-gray-600">正在连接模型，马上开始输出…</p>}
+            <pre ref={aiResultRef} className="text-xs text-gray-300 whitespace-pre-wrap font-sans leading-relaxed max-h-96 overflow-y-auto">
+              {aiResult}
+              {loading && aiResult && <span className="inline-block w-1.5 h-3.5 bg-green-400 align-middle animate-pulse ml-0.5" />}
+            </pre>
           </div>
         )}
       </div>

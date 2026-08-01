@@ -2,6 +2,7 @@ import { supabase, getCurrentUser } from "@/lib/supabase";
 import { redirect } from "next/navigation";
 import { ChapterEditor } from "./editor";
 import { SidebarClient } from "./sidebar-client";
+import { SidebarShell } from "./sidebar-shell";
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -41,7 +42,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100 flex">
-      <aside className="w-64 border-r border-gray-800 h-screen overflow-y-auto p-3 flex-shrink-0">
+      <SidebarShell>
         <SidebarClient
           projectId={id}
           projectTitle={project.title}
@@ -53,7 +54,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           currentProjectId={id}
           chapterRanges={chapterRanges}
         />
-      </aside>
+      </SidebarShell>
 
       <ChapterEditor projectId={id} project={project} chapters={chapters || []} characters={characters || []} dbVolumes={volumes || []} />
     </main>
