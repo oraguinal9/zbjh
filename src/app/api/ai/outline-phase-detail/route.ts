@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { aiChatStream } from "@/lib/ai";
-import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, withBillingStream } from "@/lib/billing";
 import { supabase } from "@/lib/supabase";
 import { buildOutlineSystemPrompt } from "@/lib/templates";
@@ -85,7 +84,6 @@ ${overallContext ? `【全书背景】\n${overallContext}\n\n` : ""}目标：为
     if (paidUserId) {
       stream = withBillingStream(stream, paidUserId, "outline");
     } else {
-      incrementCount(req);
     }
 
     return new Response(stream, {

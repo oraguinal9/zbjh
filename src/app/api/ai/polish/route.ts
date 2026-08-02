@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
-import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
 import { buildWritingSystemPrompt } from "@/lib/templates";
 
@@ -54,7 +53,6 @@ ${genreTemplate}`;
       const wordsUsed = countTextWords(result);
       await deductWords(paidUserId, wordsUsed, "polish");
     } else {
-      incrementCount(req);
     }
 
     return Response.json({ result });

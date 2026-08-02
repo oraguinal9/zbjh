@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { aiChatStream } from "@/lib/ai";
-import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, withBillingStream } from "@/lib/billing";
 import { buildWritingSystemPrompt } from "@/lib/templates";
 
@@ -139,7 +138,6 @@ ${content ? `\n【当前已写内容（请从末尾续写）】\n${content.slice
     if (paidUserId) {
       stream = withBillingStream(stream, paidUserId, "continue");
     } else {
-      incrementCount(req);
     }
 
     return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });

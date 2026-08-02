@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
-import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
 
 export async function POST(req: NextRequest) {
@@ -26,7 +25,6 @@ export async function POST(req: NextRequest) {
     if (paidUserId) {
       await deductWords(paidUserId, countTextWords(text), "titles");
     } else {
-      incrementCount(req);
     }
 
     const titles = text.split("\n").filter((l: string) => l.trim().length > 2).slice(0, 5);

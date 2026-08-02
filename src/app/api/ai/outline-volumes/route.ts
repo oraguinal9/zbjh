@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
-import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
 import { buildOutlineSystemPrompt } from "@/lib/templates";
 
@@ -137,7 +136,6 @@ export async function POST(req: NextRequest) {
       const wordsUsed = countTextWords(result);
       await deductWords(paidUserId, wordsUsed, "outline");
     } else {
-      incrementCount(req);
     }
 
     return Response.json({ volumes, growthLine, overallOutline, totalChapters });

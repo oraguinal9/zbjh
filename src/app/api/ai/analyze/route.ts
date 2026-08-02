@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { aiChatStream } from "@/lib/ai";
-import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, withBillingStream } from "@/lib/billing";
 
 export async function POST(req: NextRequest) {
@@ -30,7 +29,6 @@ ${hasText ? "以下附有原文片段供分析。" : "如果你没读过这本�
     if (paidUserId) {
       stream = withBillingStream(stream, paidUserId, "analyze");
     } else {
-      incrementCount(req);
     }
 
     return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });

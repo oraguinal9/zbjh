@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { supabase, getCurrentUser } from "@/lib/supabase";
 import { aiChat } from "@/lib/ai";
-import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
 
 export async function POST(req: NextRequest) {
@@ -46,7 +45,6 @@ DESC: 19-year-old blind girl, gentle and resilient. Secret inheritor of forbidde
     if (paidUserId) {
       await deductWords(paidUserId, countTextWords(text), "characters");
     } else {
-      incrementCount(req);
     }
 
     // Parse ASCII format: split by "---"

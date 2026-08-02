@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
-import { incrementCount } from "@/lib/rate-limit";
 import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
 import { buildOutlineSystemPrompt } from "@/lib/templates";
 
@@ -102,7 +101,6 @@ ${volumeSummary ? `本卷核心：${volumeSummary}` : ""}
       const wordsUsed = countTextWords(result);
       await deductWords(paidUserId, wordsUsed, "outline");
     } else {
-      incrementCount(req);
     }
 
     return Response.json({ phases });
