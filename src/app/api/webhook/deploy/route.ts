@@ -36,8 +36,10 @@ export async function POST(req: NextRequest) {
 
   const projectDir = process.cwd();
 
+  // 注意：必须在 pm2 restart 之前把部署状态写库完成，否则 restart 会杀掉
+  // 正在执行回调的进程，导致异步写库被打断（之前一直收不到 deploy_ping 的原因）
   exec(
-    `cd "${projectDir}" && git pull origin master 2>&1 && npm install 2>&1 && npm run build 2>&1 && pm2 restart ai-writer 2>&1`,
+    `cd "${projectDir}" && git pull origin master 2>&1 && npm install 2>&1 && npm run build 2>&1`,
     { timeout: 900000, maxBuffer: 10 * 1024 * 1024 },
     async (error, stdout) => {
       const ok = !error;
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
         tail: stdout ? stdout.slice(-800) : "",
         at: new Date().toISOString(),
       });
+      // 先写状态（await 完成），再重启
       try {
         const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
         const { error: we } = await supabase.from("transactions").insert({ project: "system", type: "deploy_ping", amount: 0, note });
@@ -54,11 +57,12 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         console.error("[deploy status write failed]", (e as Error).message);
       }
-      if (!ok) {
+      // 写库完成后再重启（可能杀掉本进程，但写库已落库）
+      if (ok) {
+        exec("pm2 restart ai-writer", { timeout: 60000 }, () => {});
+      } else {
         console.error("[webhook部署失败]", error?.message);
         console.error(stdout);
-      } else {
-        console.log("[webhook部署成功]", stdout.slice(-300));
       }
     }
   );
