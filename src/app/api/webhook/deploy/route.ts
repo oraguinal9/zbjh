@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { exec, execSync } from "child_process";
+import { exec } from "child_process";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
@@ -12,7 +12,7 @@ const SUPABASE_KEY =
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 const LOCK_FILE = "/tmp/zbjh-deploy.lock";
-const LOCK_MAX_AGE = 35 * 60 * 1000; // 锁最长有效 35 分钟
+const LOCK_MAX_AGE = 70 * 60 * 1000; // 锁最长有效 70 分钟
 
 function verifySignature(payload: string, signature: string | null): boolean {
   if (!WEBHOOK_SECRET || !signature) return false;
@@ -68,7 +68,6 @@ export async function POST(req: NextRequest) {
     commit = payload.after || "unknown";
   } catch {}
 
-  // 串行化：已有构建在跑则跳过本次，避免弱机 CPU 抢占导致全部超时
   if (lockBusy()) {
     await writeDeployStatus("skipped", { commit, reason: "build already running" });
     return Response.json({ success: true, skipped: true, message: "构建进行中，已跳过本次" });
@@ -80,24 +79,17 @@ export async function POST(req: NextRequest) {
 
   const projectDir = process.cwd();
 
-  // 近期均为纯 TS 改动（quota-center / version 端点），无新增依赖，跳过 npm install 以加速
+  // 关键：pm2 restart 必须在构建命令链内（同步、shell 退出前完成）。
+  // 不能放在 exec 回调里——构建超时被杀时回调随之死亡，导致永不重启。
+  // 弱机 next build 可能 50+ 分钟，超时设 75 分钟。近期纯 TS 改动，跳过 npm install。
   exec(
-    `cd "${projectDir}" && git pull origin master 2>&1 && npm run build 2>&1`,
-    { timeout: 2400000, maxBuffer: 20 * 1024 * 1024 },
-    async (error, stdout) => {
-      const ok = !error;
-      await writeDeployStatus(ok ? "done" : "failed", {
-        commit,
-        error: error ? error.message.slice(0, 500) : null,
-        tail: stdout ? stdout.slice(-800) : "",
-      });
+    `cd "${projectDir}" && git pull origin master 2>&1 && npm run build 2>&1 && pm2 restart ai-writer 2>&1`,
+    { timeout: 4500000, maxBuffer: 20 * 1024 * 1024 },
+    async (error) => {
+      await writeDeployStatus(error ? "failed" : "done", { commit, error: error ? error.message.slice(0, 500) : null });
       try {
         if (existsSync(LOCK_FILE)) unlinkSync(LOCK_FILE);
       } catch {}
-      // 写库完成后再重启
-      if (ok) {
-        exec("pm2 restart ai-writer", { timeout: 60000 }, () => {});
-      }
     }
   );
 
