@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
   exec(
     `cd "${projectDir}" && git pull origin master 2>&1 && npm install 2>&1 && npm run build 2>&1 && pm2 restart ai-writer 2>&1 && node scripts/deploy-ping.cjs 2>&1`,
-    { timeout: 360000, maxBuffer: 10 * 1024 * 1024 },
+    { timeout: 600000, maxBuffer: 10 * 1024 * 1024 },
     (error, stdout) => {
       if (error) {
         console.error("[webhook部署失败]", error.message);
