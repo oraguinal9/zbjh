@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { creditOrder } from "@/lib/payment";
 
 /**
  * 支付回调（支持mock模式方便测试）
@@ -27,89 +28,8 @@ export async function POST(req: NextRequest) {
     if (!order) return Response.json({ error: "订单不存在" }, { status: 404 });
     if (order.status === "paid") return Response.json({ error: "订单已支付" }, { status: 400 });
 
-    // 更新订单状态
-    await supabase
-      .from("orders")
-      .update({ status: "paid", paid_at: new Date().toISOString() })
-      .eq("id", order.id);
-
-    // 增加用户余额
-    const { data: balance } = await supabase
-      .from("user_balances")
-      .select("remaining_words, total_purchased_words")
-      .eq("user_id", order.user_id)
-      .single();
-
-    if (balance) {
-      await supabase
-        .from("user_balances")
-        .update({
-          remaining_words: (balance.remaining_words || 0) + order.words,
-          total_purchased_words: (balance.total_purchased_words || 0) + order.words,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", order.user_id);
-    } else {
-      await supabase.from("user_balances").insert({
-        user_id: order.user_id,
-        remaining_words: order.words,
-        total_purchased_words: order.words,
-      });
-    }
-
-    // 首次充值 → 奖励邀请人
-    const isFirstPaidOrder = order.package_type === "first";
-    if (isFirstPaidOrder) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("invited_by")
-        .eq("id", order.user_id)
-        .single();
-
-      if (profile?.invited_by) {
-        // 检查是否已经奖励过
-        const { data: existingReward } = await supabase
-          .from("invite_rewards")
-          .select("id")
-          .eq("user_id", profile.invited_by)
-          .eq("related_user_id", order.user_id)
-          .eq("reason", "recharge_bonus")
-          .single();
-
-        if (!existingReward) {
-          const bonusWords = 200_000; // 20万字
-          const { data: invBalance } = await supabase
-            .from("user_balances")
-            .select("remaining_words, total_purchased_words")
-            .eq("user_id", profile.invited_by)
-            .single();
-
-          if (invBalance) {
-            await supabase
-              .from("user_balances")
-              .update({
-                remaining_words: (invBalance.remaining_words || 0) + bonusWords,
-                total_purchased_words: (invBalance.total_purchased_words || 0) + bonusWords,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("user_id", profile.invited_by);
-          } else {
-            await supabase.from("user_balances").insert({
-              user_id: profile.invited_by,
-              remaining_words: bonusWords,
-              total_purchased_words: bonusWords,
-            });
-          }
-
-          await supabase.from("invite_rewards").insert({
-            user_id: profile.invited_by,
-            amount_words: bonusWords,
-            reason: "recharge_bonus",
-            related_user_id: order.user_id,
-          });
-        }
-      }
-    }
+    // 确认到账（订单置paid + 加余额 + 邀请奖励）
+    await creditOrder(order);
 
     return Response.json({ success: true, message: "充值成功" });
   } catch (error: any) {

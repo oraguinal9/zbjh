@@ -91,6 +91,13 @@ export async function POST(req: NextRequest) {
       )
     `);
 
+    // 人工审核（扫码转账）所需字段
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS proof_note TEXT DEFAULT ''`);
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS proof_image TEXT DEFAULT ''`);
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS review_note TEXT DEFAULT ''`);
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS usage_records (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
