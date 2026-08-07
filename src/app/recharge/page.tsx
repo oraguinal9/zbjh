@@ -282,7 +282,7 @@ export default function RechargePage() {
             <div className="flex flex-col items-center bg-gray-950/60 rounded-xl p-4 mb-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={payMethod === "alipay" ? "/alipay-qr.png" : "/wechat-qr.png"}
+                src={payMethod === "alipay" ? "/images/alipay-qr.png" : "/images/wechat-qr.png"}
                 alt={payMethod === "alipay" ? "支付宝收款码" : "微信收款码"}
                 className="w-52 h-52 object-contain rounded-lg bg-white"
               />
