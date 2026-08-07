@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { authFetch } from "@/lib/auth";
 import { detectHooks } from "@/lib/hooks";
+import { inspectLocal } from "@/lib/inspect";
 import { exportSingleChapter, exportFullProject, copyPublishText, type ExportFormat } from "@/lib/export";
 import type { Project, Chapter, Character } from "@/types";
 
@@ -44,7 +45,7 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
   const [summaryStatus, setSummaryStatus] = useState<"" | "generating" | "done">("");
   const [summaryContent, setSummaryContent] = useState("");
   const [showSummary, setShowSummary] = useState(false);
-  const [mode, setMode] = useState<"write" | "plan" | "polish">("write");
+  const [mode, setMode] = useState<"write" | "plan" | "polish" | "inspect">("write");
 
   // 字数统计（中文去空白）
 
@@ -205,6 +206,9 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
   // 钩子检测
   const hookResult = useMemo(() => detectHooks(content), [content]);
 
+  // 本地红线扫描（AI味/破折号/重复词/句式）
+  const localReport = useMemo(() => inspectLocal(content), [content]);
+
   // 快捷键：Ctrl/Cmd+S 保存、Ctrl/Cmd+Enter 续写、Esc 停止生成
   const shortcutRef = useRef<(e: KeyboardEvent) => void>(() => {});
   useEffect(() => {
@@ -294,6 +298,8 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
             className={`px-4 py-1.5 rounded-md text-xs font-medium transition ${mode === "write" ? "bg-purple-600 text-white shadow" : "text-gray-400 hover:text-white"}`}>✍️ 写作</button>
           <button onClick={() => setMode("polish")}
             className={`px-4 py-1.5 rounded-md text-xs font-medium transition ${mode === "polish" ? "bg-pink-600 text-white shadow" : "text-gray-400 hover:text-white"}`}>✨ 精修</button>
+          <button onClick={() => setMode("inspect")}
+            className={`px-4 py-1.5 rounded-md text-xs font-medium transition ${mode === "inspect" ? "bg-emerald-600 text-white shadow" : "text-gray-400 hover:text-white"}`}>🧪 体检</button>
           <span className="hidden md:block w-px self-stretch bg-gray-700 mx-1" />
           <span className={`px-3 py-1.5 text-xs ${wordColor}`}>📝 {wordCount}字 {wordStatus}</span>
           <span className={`px-3 py-1.5 text-xs ${dialogueColor}`}>💬 对话{dialogueRatio}% {dialogueStatus}</span>
@@ -431,6 +437,63 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
           </div>
         )}
 
+        {/* === 体检模式 === */}
+        {mode === "inspect" && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            <button onClick={() => aiAction("/api/ai/inspect", { text: content, projectId, chapterTitle: activeChapter.title, genre: project.genre })}
+              disabled={loading || !content} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg text-xs transition">🔬 AI五层体检{loading ? "中..." : ""}</button>
+            <button onClick={() => setTab(tab === "comply" ? "" : "comply")}
+              className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "comply" ? "bg-red-600" : "bg-gray-800 hover:bg-gray-700"}`}>🛡️ 合规({warnings.length})</button>
+            <button onClick={() => setTab(tab === "hooks" ? "" : "hooks")}
+              className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "hooks" ? "bg-yellow-600" : "bg-gray-800 hover:bg-gray-700"}`}>🎣 钩子({hookResult.totalHooks})</button>
+            <span className="hidden md:block w-px self-stretch bg-gray-700 mx-0.5" />
+            <span className="text-xs flex items-center text-gray-400">本地扫描{content ? ` ${localReport.score}分` : ""} · AI味词{localReport.flavorHits.length} · 破折号{localReport.dashCount} · 重复词{localReport.topRepeated.length}</span>
+          </div>
+        )}
+        {mode === "inspect" && content && (
+          <div className="mb-3 p-3 bg-gray-900 border border-emerald-800 rounded-lg text-xs">
+            <div className="flex items-center justify-between mb-2">
+              <p className="font-bold text-emerald-400">🧪 本地红线扫描 <span className="text-gray-500 font-normal">（本地秒出，不耗额度）</span></p>
+              <span className={`font-bold ${localReport.score >= 80 ? "text-green-400" : localReport.score >= 60 ? "text-yellow-400" : "text-red-400"}`}>{localReport.score}分</span>
+            </div>
+            {localReport.issues.length === 0 && <p className="text-gray-400">✅ 未命中红线，本章文面干净。</p>}
+            <div className="space-y-1.5">
+              {localReport.issues.map((it, i) => (
+                <div key={i} className={`rounded-lg px-2 py-1.5 ${it.severity === "high" ? "bg-red-950/40 border border-red-900" : it.severity === "medium" ? "bg-yellow-950/30 border border-yellow-900" : "bg-gray-800 border border-gray-700"}`}>
+                  <span className="text-white font-bold">{it.label}</span>
+                  <span className="text-gray-400 ml-2">{it.detail}</span>
+                  <p className="text-gray-500 mt-0.5">💡 {it.suggestion}</p>
+                </div>
+              ))}
+            </div>
+            {localReport.flavorHits.length > 0 && (
+              <div className="mt-2">
+                <p className="text-yellow-400 font-bold mb-1">AI高频词命中</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {localReport.flavorHits.map((h, i) => (
+                    <span key={i} className="bg-gray-800 border border-gray-700 rounded px-2 py-0.5">
+                      <span className="text-yellow-300">{h.word}</span>
+                      <span className="text-gray-500"> ×{h.count}</span>
+                      <span className="text-gray-600 ml-1">（{h.category}）</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {localReport.topRepeated.length > 0 && (
+              <div className="mt-2">
+                <p className="text-yellow-400 font-bold mb-1">高频重复词（建议替换）</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {localReport.topRepeated.map((r, i) => (
+                    <span key={i} className="bg-gray-800 border border-gray-700 rounded px-2 py-0.5">
+                      <span className="text-yellow-300">{r.word}</span><span className="text-gray-500"> ×{r.count}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         {showCharForm && (
           <div className="mb-3 p-3 bg-gray-900 border border-pink-800 rounded-lg text-xs">
             <div className="flex items-center justify-between mb-2">
@@ -683,11 +746,21 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
                     className="text-xs px-2 py-1 bg-red-600 hover:bg-red-700 rounded transition">⏹ 停止生成</button>
                 ) : (
                   <>
-                    <button onClick={() => setAiResult("")} className="text-xs text-gray-500 hover:text-white">放弃</button>
-                    <button onClick={() => applyResult("append")}
-                      className={`text-xs px-2 py-1 rounded transition ${aiApplyMode === "append" ? "bg-green-600 hover:bg-green-700" : "bg-gray-700 hover:bg-gray-600"}`}>⬇️ 追加到正文</button>
-                    <button onClick={() => applyResult("replace")}
-                      className={`text-xs px-2 py-1 rounded transition ${aiApplyMode === "replace" ? "bg-green-600 hover:bg-green-700" : "bg-gray-700 hover:bg-gray-600"}`}>🔄 替换全文</button>
+                    {mode === "inspect" ? (
+                    <>
+                      <button onClick={() => setAiResult("")} className="text-xs text-gray-500 hover:text-white">放弃</button>
+                      <button onClick={() => { navigator.clipboard?.writeText(aiResult); alert("报告已复制，可粘贴给AI按报告修改"); }}
+                        className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded transition">📋 复制报告</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => setAiResult("")} className="text-xs text-gray-500 hover:text-white">放弃</button>
+                      <button onClick={() => applyResult("append")}
+                        className={`text-xs px-2 py-1 rounded transition ${aiApplyMode === "append" ? "bg-green-600 hover:bg-green-700" : "bg-gray-700 hover:bg-gray-600"}`}>⬇️ 追加到正文</button>
+                      <button onClick={() => applyResult("replace")}
+                        className={`text-xs px-2 py-1 rounded transition ${aiApplyMode === "replace" ? "bg-green-600 hover:bg-green-700" : "bg-gray-700 hover:bg-gray-600"}`}>🔄 替换全文</button>
+                    </>
+                    )}
                   </>
                 )}
               </div>
