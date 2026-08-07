@@ -2,8 +2,8 @@
 
 // 字数充值套餐（执笔惊鸿）
 export const PACKAGES = {
-  first: { amount: 9.9, words: 1_000_000, label: "首充特惠" },
-  renew: { amount: 19.9, words: 1_000_000, label: "续费充值" },
+  first: { amount: 39.9, words: 1_000_000, label: "首充特惠" },
+  renew: { amount: 59.9, words: 1_000_000, label: "续费充值" },
 } as const;
 export type PackageType = keyof typeof PACKAGES;
 

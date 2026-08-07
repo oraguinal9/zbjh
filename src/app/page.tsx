@@ -167,7 +167,7 @@ export default function Home() {
             { icon: "✍️", label: "AI 续写", desc: "上下文+角色感知" },
             { icon: "✨", label: "去 AI 味", desc: "润色自然口语化" },
             { icon: "🔍", label: "智能拆书", desc: "拆解爆款结构" },
-            { icon: "💰", label: "9.9 元起", desc: "100 万字额度" },
+            { icon: "💰", label: "39.9 元起", desc: "100 万字额度" },
           ].map((f, i) => (
             <div key={i} className="bg-gray-900/60 border border-gray-800 rounded-xl p-3 text-center hover:border-purple-700 transition">
               <p className="text-xl mb-1">{f.icon}</p>

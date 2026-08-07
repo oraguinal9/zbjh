@@ -21,14 +21,14 @@ const features = [
 ];
 
 const packages = [
-  { type: "首充特惠", price: "¥9.9", words: "100 万字", note: "仅限首次", highlight: true },
-  { type: "续费充值", price: "¥19.9", words: "100 万字", note: "后续充值", highlight: false },
+  { type: "首充特惠", price: "¥39.9", words: "100 万字", note: "仅限首次", highlight: true },
+  { type: "续费充值", price: "¥59.9", words: "100 万字", note: "后续充值", highlight: false },
 ];
 
 const tips = [
   "先写章纲再续写，AI 生成质量大幅提升",
   "在编辑器设置字数目标（2000-3000 字为最佳章节长度）",
-  "首充 9.9 元 = 100 万字额度，足够写完一部百万字小说",
+  "首充 39.9 元 = 100 万字额度，足够写完一部百万字小说",
   "对话占比 60%+ 是番茄爆款的重要指标，编辑器会自动统计",
   "生成大纲后，可用 AI 角色功能自动提取角色信息",
   "在编辑器设置「文风样本」，AI 续写/润色/扩写会模仿你的个人风格",

@@ -111,7 +111,7 @@ export default function RechargePage() {
                 <p className="text-sm text-gray-400">仅限首次</p>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold text-purple-400">¥9.9</p>
+                <p className="text-2xl font-bold text-purple-400">¥39.9</p>
                 <p className="text-xs text-gray-500">一次性</p>
               </div>
             </div>
@@ -133,7 +133,7 @@ export default function RechargePage() {
                 <p className="text-sm text-gray-400">再次购买</p>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold text-gray-100">¥19.9</p>
+                <p className="text-2xl font-bold text-gray-100">¥59.9</p>
                 <p className="text-xs text-gray-500">一次性</p>
               </div>
             </div>
