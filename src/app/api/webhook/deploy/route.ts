@@ -73,7 +73,7 @@ function isDocsOnlyChange(projectDir: string, before: string, after: string): Pr
       return;
     }
     exec(
-      `cd "${projectDir}" && git fetch origin master --quiet 2>&1 && git diff --name-only ${before} ${after} 2>&1`,
+      `cd "${projectDir}" && git fetch origin master --quiet 2>&1 && git -c core.quotepath=false diff --name-only ${before} ${after} 2>&1`,
       { timeout: 120000, maxBuffer: 5 * 1024 * 1024 },
       (error, stdout) => {
         if (error) return resolve(false); // 无法判断 → 保守走完整构建
