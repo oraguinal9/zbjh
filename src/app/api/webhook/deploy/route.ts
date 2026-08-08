@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { exec } from "child_process";
+import { exec, execSync } from "child_process";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "fs";
@@ -49,7 +49,14 @@ function lockBusy(): boolean {
       unlinkSync(LOCK_FILE);
       return false;
     }
-    return true;
+    // 锁存在但没有任何构建进程在跑 → 上次部署已结束但锁没被清（如 pm2 重启杀掉了回调），视为空闲
+    try {
+      execSync("pgrep -f 'next build'", { stdio: "ignore" });
+      return true;
+    } catch {
+      unlinkSync(LOCK_FILE);
+      return false;
+    }
   } catch {
     return false;
   }
@@ -118,7 +125,7 @@ export async function POST(req: NextRequest) {
   const docsOnly = await isDocsOnlyChange(projectDir, before, commit);
   if (docsOnly) {
     exec(
-      `cd "${projectDir}" && git pull origin master 2>&1`,
+      `cd "${projectDir}" && (git pull origin master 2>&1 || (rm -f "${LOCK_FILE}"; exit 1)) && rm -f "${LOCK_FILE}"`,
       { timeout: 300000, maxBuffer: 10 * 1024 * 1024 },
       async (error) => {
         await writeDeployStatus(error ? "failed" : "docs_only_done", {
@@ -135,7 +142,7 @@ export async function POST(req: NextRequest) {
 
   // 代码改动：拉取 + 清理构建目录 + 构建（输出落盘）+ 校验 BUILD_ID + 重启
   exec(
-    `cd "${projectDir}" && git pull origin master 2>&1 && rm -rf .next && (npm run build > "${DEPLOY_LOG}" 2>&1) && test -f .next/BUILD_ID && pm2 restart ai-writer 2>&1`,
+    `cd "${projectDir}" && (git pull origin master 2>&1 && rm -rf .next && (npm run build > "${DEPLOY_LOG}" 2>&1) && test -f .next/BUILD_ID && rm -f "${LOCK_FILE}" && pm2 restart ai-writer 2>&1) || (rm -f "${LOCK_FILE}"; echo "DEPLOY_FAILED"; exit 1)`,
     { timeout: 4500000, maxBuffer: 20 * 1024 * 1024 },
     async (error) => {
       await writeDeployStatus(error ? "failed" : "done", {
