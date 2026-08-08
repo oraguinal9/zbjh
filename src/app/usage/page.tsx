@@ -21,6 +21,7 @@ const FEATURE_LABELS: Record<string, string> = {
   polish: "去AI味",
   titles: "AI起名",
   characters: "生成角色",
+  revise: "按报告改稿",
 };
 
 export default function UsagePage() {

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
 import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
 import { buildWritingSystemPrompt } from "@/lib/templates";
+import { buildStyleIronRules } from "@/lib/craft";
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
       const { supabase } = await import("@/lib/supabase");
       const { data: proj } = await supabase.from("projects").select("style_sample").eq("id", projectId).single();
       if (proj?.style_sample) {
-        stylePrompt = `\n\n【文风参考——请严格模仿以下文字的句式和节奏】\n${proj.style_sample.slice(0, 2000)}`;
+        stylePrompt = `\n\n【文风参考——请严格模仿以下文字的句式和节奏】\n${proj.style_sample.slice(0, 3000)}`;
       }
     }
 
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
     const system = `你是网文扩写专家。在保持原意、风格和情节走向不变的前提下，丰富细节、对话、心理描写和环境描写，达到目标字数。
 ${stylePrompt}
 ${genreTemplate}
+${buildStyleIronRules()}
 【扩写优先级】
 1. 优先扩写对话轮次：给角色之间增加更有张力的对话
 2. 其次丰富环境描写：场景氛围、天气、光线、声音
@@ -45,7 +47,7 @@ ${genreTemplate}
 - 不要水字数：每个增加的细节都要对剧情或氛围有价值
 - 输出完整的扩写后内容，不要省略`;
 
-    const result = await aiChat(system, `原文：\n${text}\n\n当前字数约${currentWords}字，请扩展到约${targetWords}字。保持风格一致。`, { max_tokens: 4096, temperature: 0.7 });
+    const result = await aiChat(system, `原文：\n${text}\n\n当前字数约${currentWords}字，请扩展到约${targetWords}字。保持风格一致。`, { max_tokens: 8192, temperature: 0.7 });
 
     // 付费用户按生成字数扣费
     if (paidUserId) {

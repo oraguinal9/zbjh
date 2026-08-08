@@ -65,7 +65,7 @@ P2（文笔润色）：
     let stream = await aiChatStream(
       system,
       `请体检以下章节${chapterTitle ? `（《${chapterTitle}》）` : ""}${genre ? `，题材：${genre}` : ""}：\n\n${text.slice(0, 8000)}`,
-      { temperature: 0.4, max_tokens: 4096 },
+      { temperature: 0.4, max_tokens: 6144 },
     );
 
     if (paidUserId) {

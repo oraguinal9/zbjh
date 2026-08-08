@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
 1. 总体大纲（全书总纲）—— 对整部小说的顶层设计
 2. 五卷结构 —— 5卷的详细划分
 3. 阶段提示 —— 每卷的阶段递进概括`;
-    const result = await aiChat(system, user, { max_tokens: 4096, temperature: 0.8 });
+    const result = await aiChat(system, user, { max_tokens: 8192, temperature: 0.8 });
 
     // 分割总体大纲和五卷结构
     let overallOutline = "";

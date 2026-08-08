@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
 import { checkQuotaOrError, countTextWords, deductWords } from "@/lib/billing";
 import { buildWritingSystemPrompt } from "@/lib/templates";
+import { buildStyleIronRules } from "@/lib/craft";
 
 export async function POST(req: NextRequest) {
   try {
@@ -44,8 +45,9 @@ export async function POST(req: NextRequest) {
 - 历史：符合朝代语感，不出现现代词汇
 - 其他题材：保持原题材的语言风格即可
 
-${styleSample ? `\n【文风参考——请严格模仿以下文字的句式、节奏和描写风格】\n${styleSample.slice(0, 2000)}` : ""}
-${genreTemplate}`;
+${styleSample ? `\n【文风参考——请严格模仿以下文字的句式、节奏和描写风格】\n${styleSample.slice(0, 3000)}` : ""}
+${genreTemplate}
+${buildStyleIronRules()}`;
 
     const result = await aiChat(system, `以下是一段网文内容，请按上述规则润色，去掉AI味，保持原意不变：\n\n${text}`);
 

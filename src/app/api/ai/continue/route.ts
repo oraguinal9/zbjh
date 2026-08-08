@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { aiChatStream } from "@/lib/ai";
 import { checkQuotaOrError, withBillingStream } from "@/lib/billing";
 import { buildWritingSystemPrompt } from "@/lib/templates";
+import { buildStyleIronRules } from "@/lib/craft";
 
 export async function POST(req: NextRequest) {
   try {
@@ -115,8 +116,10 @@ export async function POST(req: NextRequest) {
 - 时间+地点+动作+对话，快速推进叙事
 
 ${characterInfo ? `\n【角色设定】\n${characterInfo}\n请严格保持角色性格和说话风格一致，人物言行全程贴合人设。` : ""}
-${styleSample ? `\n【文风参考——请严格模仿以下文字的句式、节奏和描写风格】\n${styleSample.slice(0, 2000)}` : ""}
-${genreTemplate}`;
+${styleSample ? `\n【文风参考——请严格模仿以下文字的句式、节奏和描写风格】\n${styleSample.slice(0, 3000)}` : ""}
+${genreTemplate}
+
+${buildStyleIronRules()}`;
 
     const user = `作品：《${title || "未命名"}》（${genre || "都市"}）
 
@@ -133,7 +136,7 @@ ${contextChunks ? `【前文回顾】\n${contextChunks}\n` : ""}
 - 本章结尾的钩子必须自然衔接下一次续写，不能断层
 ${content ? `\n【当前已写内容（请从末尾续写）】\n${content.slice(-500)}` : ""}`;
 
-    let stream = await aiChatStream(system, user);
+    let stream = await aiChatStream(system, user, { temperature: 0.7 });
 
     if (paidUserId) {
       stream = withBillingStream(stream, paidUserId, "continue");

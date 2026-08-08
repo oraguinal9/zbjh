@@ -442,6 +442,10 @@ export function ChapterEditor({ projectId, project, chapters, characters, dbVolu
           <div className="flex flex-wrap gap-1.5 mb-4">
             <button onClick={() => aiAction("/api/ai/inspect", { text: content, projectId, chapterTitle: activeChapter.title, genre: project.genre })}
               disabled={loading || !content} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-lg text-xs transition">🔬 AI五层体检{loading ? "中..." : ""}</button>
+            {aiResult && (
+              <button onClick={() => aiAction("/api/ai/revise", { text: content, report: aiResult, projectId, genre: project.genre }, "replace")}
+                disabled={loading || !content} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg text-xs transition">✏️ 按报告改稿{loading ? "中..." : ""}</button>
+            )}
             <button onClick={() => setTab(tab === "comply" ? "" : "comply")}
               className={`px-3 py-1.5 rounded-lg text-xs transition ${tab === "comply" ? "bg-red-600" : "bg-gray-800 hover:bg-gray-700"}`}>🛡️ 合规({warnings.length})</button>
             <button onClick={() => setTab(tab === "hooks" ? "" : "hooks")}

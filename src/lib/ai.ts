@@ -2,6 +2,9 @@ const API_KEY = process.env.AI_API_KEY;
 if (!API_KEY) throw new Error("缺少环境变量: AI_API_KEY，请在 .env.local 中配置 DeepSeek API Key");
 const API_BASE = process.env.AI_API_BASE || "https://api.deepseek.com";
 const AI_MODEL = process.env.AI_MODEL || "deepseek-chat";
+// deepseek-v4-flash 是推理型模型：默认会先做长推理，占用大量输出额度导致正文被截断。
+// 写作场景用 low 推理强度：更快、更省、正文完整，质量反而更稳（2026-08-08 实测）。
+const AI_REASONING_EFFORT = process.env.AI_REASONING_EFFORT || "low";
 const AI_TIMEOUT = 60000;
 
 async function fetchAI(url: string, options: RequestInit & { signal?: AbortSignal }): Promise<Response> {
@@ -59,8 +62,9 @@ export async function aiChat(system: string, user: string, options?: { max_token
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${API_KEY}` },
     body: JSON.stringify({
       model: AI_MODEL,
+      reasoning_effort: AI_REASONING_EFFORT,
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      max_tokens: options?.max_tokens ?? 4096,
+      max_tokens: options?.max_tokens ?? 8192,
       temperature: options?.temperature ?? 0.8,
     }),
   });
@@ -77,8 +81,9 @@ export async function aiChatStream(system: string, user: string, options?: { max
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${API_KEY}` },
     body: JSON.stringify({
       model: AI_MODEL, stream: true,
+      reasoning_effort: AI_REASONING_EFFORT,
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      max_tokens: options?.max_tokens ?? 4096,
+      max_tokens: options?.max_tokens ?? 8192,
       temperature: options?.temperature ?? 0.8,
     }),
   });
