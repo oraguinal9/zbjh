@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { supabase, getCurrentUser } from "@/lib/supabase";
+import { notifyAdmin } from "@/lib/notify";
 
 // 用户提交转账凭证（备注 + 付款截图），订单进入待审核状态
 export async function POST(req: NextRequest) {
@@ -43,6 +44,13 @@ export async function POST(req: NextRequest) {
         review_note: "",
       })
       .eq("id", order.id);
+
+    // 通知管理员有新订单待审核（Bark 推送，未配置则静默跳过）
+    const email = (user.email || "用户").replace(/(\w{2})\w+@/, "$1***@");
+    await notifyAdmin(
+      "执笔惊鸿 · 新充值订单待审核",
+      `用户 ${email} 提交了 ¥${order.amount} 的充值凭证（${order.order_no}），请到后台处理`
+    );
 
     return Response.json({ success: true, message: "凭证已提交，等待审核到账（一般 1~24 小时内）" });
   } catch (e: any) {
