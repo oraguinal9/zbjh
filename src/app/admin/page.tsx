@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 
 interface AdminOrder {
@@ -32,6 +32,65 @@ export default function AdminPage() {
   const [proofModal, setProofModal] = useState<string | null>(null);
   const [proofLoading, setProofLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [newOrders, setNewOrders] = useState(0);
+  const [soundOn, setSoundOn] = useState(true);
+  const submittedRef = useRef<number | null>(null);
+  const soundOnRef = useRef(true);
+
+  useEffect(() => {
+    soundOnRef.current = soundOn;
+    sessionStorage.setItem("zbjh_admin_sound", soundOn ? "1" : "0");
+  }, [soundOn]);
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem("zbjh_admin_sound");
+    if (saved === "0") { setSoundOn(false); soundOnRef.current = false; }
+  }, []);
+
+  function playBeep() {
+    if (!soundOnRef.current) return;
+    try {
+      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new Ctx();
+      const tone = (freq: number, delay: number, dur: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.18, ctx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + dur);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + dur);
+      };
+      tone(880, 0, 0.18);
+      tone(1174.66, 0.22, 0.28);
+    } catch {}
+  }
+
+  function browserNotify(n: number) {
+    try {
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("执笔惊鸿 · 新充值订单", {
+          body: `有 ${n} 笔新订单待审核，快去后台处理`,
+        });
+      }
+    } catch {}
+    document.title = `(新订单${n}) 充值审核后台`;
+    setNewOrders(n);
+  }
+
+  function dismissNew() {
+    setNewOrders(0);
+    document.title = "充值审核后台";
+  }
+
+  async function enableDesktopNotify() {
+    if (!("Notification" in window)) { alert("当前浏览器不支持桌面通知"); return; }
+    const p = await Notification.requestPermission();
+    if (p === "granted") alert("桌面通知已开启，有新订单时会弹出提醒");
+    else alert("未授权，仍可通过页面声音和标题提醒");
+  }
 
   const getKey = () => {
     if (typeof window === "undefined") return "";
@@ -43,21 +102,37 @@ export default function AdminPage() {
     if (k) { setAdminKey(k); fetchOrders(k); }
   }, []);
 
-  const fetchOrders = useCallback(async (key: string) => {
-    setLoading(true);
+  const fetchOrders = useCallback(async (key: string, opts?: { silent?: boolean }) => {
+    const silent = opts?.silent;
+    if (!silent) setLoading(true);
     setError("");
     try {
       const res = await fetch("/api/admin/orders", { headers: { "x-admin-key": key } });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || "加载失败"); setLoading(false); return; }
-      setSubmitted(data.submitted || []);
+      if (!res.ok) { setError(data.error || "加载失败"); if (!silent) setLoading(false); return; }
+      const newSubmitted = data.submitted || [];
+      const prev = submittedRef.current;
+      setSubmitted(newSubmitted);
       setRecent(data.recent || []);
+      if (prev !== null && newSubmitted.length > prev) {
+        const added = newSubmitted.length - prev;
+        playBeep();
+        browserNotify(added);
+      }
+      submittedRef.current = newSubmitted.length;
     } catch {
-      setError("网络错误");
+      if (!silent) setError("网络错误");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
+
+  // 每 20 秒静默检测一次新订单
+  useEffect(() => {
+    if (!adminKey) return;
+    const t = setInterval(() => fetchOrders(adminKey, { silent: true }), 20000);
+    return () => clearInterval(t);
+  }, [adminKey, fetchOrders]);
 
   function handleSaveKey() {
     if (!adminKey.trim()) return;
@@ -142,6 +217,22 @@ export default function AdminPage() {
           </div>
         ) : (
           <>
+            {newOrders > 0 && (
+              <div className="mb-4 flex items-center justify-between bg-amber-900/30 border border-amber-700 rounded-xl px-4 py-3">
+                <span className="text-sm text-amber-300">🆕 有 {newOrders} 笔新订单待审核</span>
+                <button onClick={dismissNew} className="text-xs text-gray-400 hover:text-white transition">知道了</button>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-4 text-xs text-gray-500">
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input type="checkbox" checked={soundOn} onChange={(e) => setSoundOn(e.target.checked)} className="accent-purple-500" />
+                声音提醒
+              </label>
+              <button onClick={enableDesktopNotify} className="hover:text-purple-400 transition">开启桌面通知</button>
+              <span className="text-gray-600">页面每 20 秒自动检测新订单，无需手动刷新</span>
+            </div>
+
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold">待审核订单（{submitted.length}）</h2>
               <button
